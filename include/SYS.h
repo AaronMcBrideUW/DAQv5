@@ -11,33 +11,51 @@
 
 template<typename T> struct Setting;
 class System_;
-struct CLK_SOURCE_DESCRIPTOR;
-
+struct CLK_SRC;
+enum SYS_PERIPHERAL;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION -> SYSTEM CONFIG
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
+enum SYS_PERIPHERAL : uint8_t { // Num must correspond with GCLK ch
+  PERIPH_SERCOM0,
+  PERIPH_SERCOM1,
+  PERIPH_SERCOM2,
+  PERIPH_SERCOM3,
+  PERIPH_SERCOM4 //...
+};
 
-struct SystemConfig {
-  struct {
-    struct {
+struct SystemConfig { 
+  struct {                 
+    struct {                    
+      bool enabled = true;
       bool runInStandby = false;
       bool exportSignal = false;
+      uint8_t startupTimeConfig = 2;
+      bool alwaysOn = true;
     }XOSC32K;
+
     struct {
+      bool enabled = true;
+      uint32_t freq = 48000000;
       bool runInStandby = false;
       bool onDemand = true;
       uint8_t maxFineAdjStep = 10;
       uint8_t maxCoarseAdjStep = 0;
       uint8_t fineAdjStep = 0;
       uint8_t coarseAdjStep = 0;
+      bool waitForLock = false;
+      bool quickLockEnabled = true;
       bool chillCycle = false;
       bool stabalizeFreq = true; 
       bool closedLoopMode = true;
     }DFLL;
+
     struct {
-      bool onDemand = true;
+      bool enabled[OSCCTRL_DPLLS_NUM] = {true, true};
+      uint32_t freq[OSCCTRL_DPLLS_NUM] = {112000000, 112000000};
+      bool onDemand = false;
       bool runInStandby = false;
       uint8_t xoscDivFactor = 0;
       bool enableDCOFilter = false;
@@ -45,27 +63,28 @@ struct SystemConfig {
       bool integralFilterSelection = 0; // See data sheetd
       uint8_t lockTimeoutSelection = 0;
     }DPLL;
+
     struct {
+      bool enabled[OSCCTRL_XOSCS_NUM] = {false, false};
+      uint32_t freq[OSCCTRL_XOSCS_NUM] = { };
+      bool runInStandby = false;
+      bool onDemand = true;
+    }XOSC;
+
+    struct {
+      uint16_t minFreqDiff = 10;
       bool runInStandby = false;
       bool improveDutyCycle = false;
     }GEN;
+    
     struct {
       uint8_t irqPriority = 2;
     }MISC;
-    /*
-    CLK_SOURCE_DESCRIPTOR SRC_CONFIG[8] = { 
-      {true, OSCULP32K, 32000},
-      {false, XOSC32K, 0},
-      {false, XOSC0, 0},
-      {false, XOSC1, 0},
-      {false, DFLL, 0},
-      {false, DPLL0, 0},
-      {false, DPLL1, 0} 
-    };
-    */
-  }CLK;
+  }CLK
 };
-extern SystemConfig &defaultStartup;
+
+// Default startup
+const extern SystemConfig &defaultStartup;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION -> SYSTEM CLASS
@@ -79,7 +98,7 @@ class System_ {
 
     struct CLK_ {
 
-      int8_t allocGCLK(const uint32_t &targetFreq);
+      int8_t allocGCLK(uint32_t freq, SYS_PERIPHERAL peripheral, uint16_t maxFreqOffset);
 
       bool freeGCLK(uint8_t gclkNum);
 
@@ -89,18 +108,11 @@ class System_ {
         explicit CLK_(System_ *super) : super(super) {} 
 
         bool init = false;
-        bool agclk[GCLK_NUM] = { 0 };
-        
-        void initialize();
+        uint32_t sources[CLK_SOURCE_COUNT] = { 0 };
+        bool agclk[GCLK_NUM] = {false};
 
-        bool setXOSC32K(bool enabled, bool highSpeed);
 
-        bool setDFLL(bool enabled, uint16_t multiplier);
-
-        bool setDPLL(uint8_t dpllNum, bool enabled, DPLL_REFERENCE ref,  uint8_t muliplyNumerator, 
-          uint8_t multiplyDenominator);
-
-        void setSource(SOURCE_ID id, uint32_t freq);
+        bool initialize();
 
     }CLK{this};
 
