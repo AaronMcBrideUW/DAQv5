@@ -18,9 +18,10 @@ enum SYS_PERIPHERAL;
 //// SECTION -> SYSTEM CONFIG
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-enum SYS_PERIPHERAL : uint8_t { // Num must correspond with GCLK ch
-  PERIPH_SERCOM0,
-  PERIPH_SERCOM1,
+enum SYS_PERIPHERAL : uint8_t { // Num must correspond with GCLK-> ch num
+  PERIPH_NONE,
+  PERIPH_SERCOM0 = 3,
+  PERIPH_SERCOM1 = 4, 
   PERIPH_SERCOM2,
   PERIPH_SERCOM3,
   PERIPH_SERCOM4 //...
@@ -98,9 +99,11 @@ class System_ {
 
     struct CLK_ {
 
-      int8_t allocGCLK(uint32_t freq, SYS_PERIPHERAL peripheral, uint16_t maxFreqOffset);
+      int8_t allocGCLK(uint32_t freq, uint16_t maxFreqOffset, SYS_PERIPHERAL peripheral);
 
       bool freeGCLK(uint8_t gclkNum);
+
+      uint8_t getStatus();
 
       protected:
         friend System_;
@@ -110,6 +113,7 @@ class System_ {
         bool init = false;
         uint32_t sources[CLK_SOURCE_COUNT] = { 0 };
         bool agclk[GCLK_NUM] = {false};
+        int8_t periphAlloc[GCLK_GEN_NUM] = {-1};
 
 
         bool initialize();

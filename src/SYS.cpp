@@ -41,6 +41,8 @@ struct CLK_SRC {
   uint32_t freq;
 };
 
+const uint8_t PERIPH_REF[ID_PERIPH_COUNT] =  {};
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION -> CLK IRQ
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -62,7 +64,8 @@ void OSCCTRL_4_Handler ( void ) __attribute__((weak, alias("OSCCTRL_0_Handler"))
 //// SECTION -> SYSTEM CLASS METHODS
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-int8_t System_::CLK_::allocGCLK(uint32_t freq, SYS_PERIPHERAL periph, uint16_t maxFreqOffset) {
+int8_t System_::CLK_::allocGCLK(uint32_t freq, uint16_t maxFreqOffset,
+   SYS_PERIPHERAL periph) {
   if (!init) return -1;
 
   uint32_t nearestDiff = UINT32_MAX;
@@ -117,6 +120,20 @@ int8_t System_::CLK_::allocGCLK(uint32_t freq, SYS_PERIPHERAL periph, uint16_t m
       while(GCLK->SYNCBUSY.reg & (1 << gclkNum + GCLK_SYNCBUSY_GENCTRL0_Pos));
     return -1;
   }
+  // Attemp to assign to peripheral channel (if applicable)
+  if (periph != PERIPH_NONE) {
+    uint8_t periphNum = PERIPH_REF[(uint8_t)periph];
+
+    if (periphAlloc[periphNum] == -1) {
+      periphAlloc[periphNum] = gclkNum;
+      GCLK->PCHCTRL[gclkNum].reg = 0;
+
+      GCLK->PCHCTRL[gclkNum].reg |=
+          GCLK_PCHCTRL_GEN(periphNum)
+        | GCLK_PCHCTRL_CHEN;
+    }
+  }
+  return gclkNum;
 }
 
 bool System_::CLK_::freeGCLK(uint8_t gclkNum) {
@@ -124,21 +141,20 @@ bool System_::CLK_::freeGCLK(uint8_t gclkNum) {
 
   if (agclk[gclkNum]) {
     agclk[gclkNum] = false;
+
+    // Disable clk peripheral channel
+    for (int16_t i = 0; i < sizeof(periphAlloc) / sizeof(periphAlloc[0]); i++) {
+      if (periphAlloc[i] == gclkNum) {
+        periphAlloc[i] = -1;
+        GCLK->PCHCTRL[gclkNum].bit.CHEN = 0;
+      }
+    } // Disable clk
     GCLK->GENCTRL[gclkNum].reg = 0;
       while(GCLK->SYNCBUSY.reg & (1 << gclkNum + GCLK_SYNCBUSY_GENCTRL0_Pos));
     return true;
   }
   return false;
 }
-
-/*
-    // Set PHCTRL reg (peripheral ctrl)
-    GCLK->PCHCTRL[gclkNum].reg = 0;
-    GCLK->PCHCTRL[gclkNum].reg |=
-        GCLK_PCHCTRL_GEN(periph)
-      | GCLK_PCHCTRL_CHEN;
-    return gclkNum;
-*/
 
 
 
