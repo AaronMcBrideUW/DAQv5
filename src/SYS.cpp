@@ -8,6 +8,8 @@
                       | OSCCTRL_STATUS_DPLL0TO | OSCCTRL_STATUS_DPLL0LCKF)
 #define DFLL_REF_FREQ 32768
 #define DPLL_REF_FREQ 32768
+#define MAIN_GCLK_NUM 0
+#define MAIN_OSC_NUM_DEFAULT GCLK_GENCTRL_SRC_DPLL0_Val
 #define OSC32KCTRL_EN1K_FREQ 1000
 #define OSC32KCTRL_EN32K_FREQ 32768
 #define DFLL_GCLK_REF_CH 0
@@ -157,13 +159,9 @@ bool System_::CLK_::freeGCLK(uint8_t gclkNum) {
 }
 
 
-
-
 bool System_::CLK_::initialize() {
   if (init) return true;
-  init = true;
-
-  // NVMCTRL->CTRLA.bit.RWS = 5; 
+  init = true; 
 
   //// SYS SETUP //////////////////////////////////////////////////////////////////////////////////
 
@@ -219,10 +217,12 @@ bool System_::CLK_::initialize() {
   }
 
   // set CFDCTRL reg (failiure detection)
-  OSC32KCTRL->CFDCTRL.reg = 0;
-  OSC32KCTRL->CFDCTRL.reg |= 
-      OSC32KCTRL_CFDCTRL_SWBACK    
-    | OSC32KCTRL_CFDCTRL_CFDEN;    
+  if (super->config->CLK.MISC.failiureDetection) {
+    OSC32KCTRL->CFDCTRL.reg = 0;
+    OSC32KCTRL->CFDCTRL.reg |= 
+        OSC32KCTRL_CFDCTRL_SWBACK    
+      | OSC32KCTRL_CFDCTRL_CFDEN;    
+  }
 
   //// SETUP THE DFLL /////////////////////////////////////////////////////////////////////////////
 
@@ -302,8 +302,14 @@ bool System_::CLK_::initialize() {
       OSCCTRL->DFLLCTRLB.bit.WAITLOCK = 0;
         while(OSCCTRL->DFLLSYNC.bit.DFLLCTRLB);
     }
-    // Wait for ready...
     while(!OSCCTRL->STATUS.bit.DFLLRDY);
+
+    // Add dfll to sources
+    for (int16_t i = 0; i < sizeof(sources) / sizeof(sources[0]); i++) {
+      if (!sources[i]) {
+        sources[i] == super->config->CLK.DFLL.freq;
+      }
+    }
 
   } else {
     OSCCTRL->DFLLCTRLA.bit.ENABLE = 0;
@@ -367,6 +373,12 @@ bool System_::CLK_::initialize() {
           return false;
         } 
       }
+      // Add dpll sources to source array
+      for (int16_t j = 0; j < sizeof(sources) / sizeof(sources[0]); j++) {
+        if (!sources[j]) {
+          sources[j] = super->config->CLK.DPLL.freq[i];
+        }
+      }
     } else {
       OSCCTRL->Dpll[i].DPLLCTRLA.bit.ENABLE = 0;
         while(OSCCTRL->Dpll[i].DPLLSYNCBUSY.bit.ENABLE);
@@ -375,18 +387,90 @@ bool System_::CLK_::initialize() {
 
   // TO DO -> ADD SUPORT FOR REGULAR XOSC CRYSTALS
 
-  //// ENABLE INTERRUPTS //////////////////////////////////////////////////////////////////////////
+  for (int16_t i = 0; i < OSCCTRL_XOSCS_NUM; i++) {
 
-  for (int i = 0; i < sizeof(CLK_IRQS) / sizeof(CLK_IRQS[0]); i++) {
-    NVIC_ClearPendingIRQ(CLK_IRQS[i]);
-    NVIC_SetPriority(CLK_IRQS[i], super->config->CLK.MISC.irqPriority);
-    NVIC_EnableIRQ(CLK_IRQS[i]);
+    if (super->config->CLK.XOSC.enabled[i]) {
+      uint8_t currentRef = 0;
+      uint8_t currentMulti = 0;
+
+      // Find current multiplier & reference
+      if (super->config->CLK.XOSC.freq[i] > 1000000 
+      && super->config->CLK.XOSC.freq[i] < 2000000) {
+        currentMulti = 1;
+        currentRef = 1;
+      } else if (super->config->CLK.XOSC.freq[i] < 4000000) {
+        currentMulti = 2;
+        currentRef = 1;
+      } else if (super->config->CLK.XOSC.freq[i] < 8000000) {
+        currentMulti = 3;
+        currentRef = 2;
+      } else if (super->config->CLK.XOSC.freq[i] < 16000000) {
+        currentMulti = 4;
+        currentRef = 3;
+      } else if (super->config->CLK.XOSC.freq[i] < 24000000) {
+        currentMulti = 5;
+        currentRef = 3;
+      } else {
+        currentMulti = 6;
+        currentRef = 3;
+      }
+      // Set XOSCTRL reg
+      OSCCTRL->XOSCCTRL[i].reg = 0;
+
+      OSCCTRL->XOSCCTRL[i].bit.ENALC = (uint8_t)super->config->CLK.XOSC.autoLoopCtrl;
+      OSCCTRL->XOSCCTRL[i].bit.LOWBUFGAIN = (uint8_t)super->config->CLK.XOSC.lowBufferGain;
+      OSCCTRL->XOSCCTRL[i].bit.ONDEMAND = (uint8_t)super->config->CLK.XOSC.onDemand;
+      OSCCTRL->XOSCCTRL[i].bit.RUNSTDBY = (uint8_t)super->config->CLK.XOSC.runInStandby;
+
+      OSCCTRL->XOSCCTRL[i].bit.CFDEN = (uint8_t)super->config->CLK.MISC.failiureDetection;
+      OSCCTRL->XOSCCTRL[i].bit.SWBEN = (uint8_t)super->config->CLK.MISC.failiureDetection;
+
+      OSCCTRL->XOSCCTRL[i].reg |=
+          OSCCTRL_XOSCCTRL_STARTUP(super->config->CLK.XOSC.startupTimeSel)
+        | OSCCTRL_XOSCCTRL_IMULT(currentMulti)
+        | OSCCTRL_XOSCCTRL_IPTAT(currentRef)
+        | OSCCTRL_XOSCCTRL_ENABLE;
+
+      for (int j = 0; j < sizeof(sources) / sizeof(sources[0]); j++) {
+        if (!sources[j]) {
+          sources[j] == super->config->CLK.XOSC.freq[i];
+        }
+      }
+    }
   }
 
-  OSC32KCTRL->INTENSET.bit.XOSC32KFAIL = 1;
-  OSCCTRL->INTENSET.reg |= 
-      OSCCTRL_INTENSET_DFLLOOB 
-    | OSCCTRL_INTFLAG_XOSCFAIL_Msk;
+  //// MAIN (CPU) CLOCKS //////////////////////////////////////////////////////////////////////////
+
+  NVMCTRL->CTRLA.bit.RWS = 5; 
+
+  if (!GCLK->GENCTRL[MAIN_GCLK_NUM].bit.GENEN) {
+    GCLK->GENCTRL[MAIN_GCLK_NUM].reg = 
+        GCLK_GENCTRL_SRC(super->config->CLK.MISC.cpuSrc) 
+      | GCLK_GENCTRL_IDC;
+
+    while(GCLK->SYNCBUSY.reg & (1 << MAIN_GCLK_NUM + GCLK_SYNCBUSY_GENCTRL0_Pos)); 
+  }
+
+  GCLK->GENCTRL[MAIN_GCLK_NUM].bit.RUNSTDBY = 1;
+    while(GCLK->SYNCBUSY.reg & (1 << MAIN_GCLK_NUM + GCLK_SYNCBUSY_GENCTRL0_Pos));
+
+  MCLK->CPUDIV.bit.DIV = super->config->CLK.MISC.cpuDivSelection;
+
+  //// ENABLE INTERRUPTS //////////////////////////////////////////////////////////////////////////
+
+  if (super->config->CLK.MISC.failiureDetection) {
+    
+    for (int i = 0; i < sizeof(CLK_IRQS) / sizeof(CLK_IRQS[0]); i++) {
+      NVIC_ClearPendingIRQ(CLK_IRQS[i]);
+      NVIC_SetPriority(CLK_IRQS[i], super->config->CLK.MISC.irqPriority);
+      NVIC_EnableIRQ(CLK_IRQS[i]);
+    }
+
+    OSC32KCTRL->INTENSET.bit.XOSC32KFAIL = 1;
+    OSCCTRL->INTENSET.reg |= 
+        OSCCTRL_INTENSET_DFLLOOB 
+      | OSCCTRL_INTFLAG_XOSCFAIL_Msk;
+  }
 
   return true;
 }

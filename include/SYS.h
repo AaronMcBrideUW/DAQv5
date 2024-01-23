@@ -27,6 +27,11 @@ enum SYS_PERIPHERAL : uint8_t { // Num must correspond with GCLK-> ch num
   PERIPH_SERCOM4 //...
 };
 
+enum PIN_CONFIG : uint8_t {
+  INPUT_PIN,
+  OUTPUT_PIN
+};
+
 struct SystemConfig { 
   struct {                 
     struct {                    
@@ -36,6 +41,16 @@ struct SystemConfig {
       uint8_t startupTimeConfig = 2;
       bool alwaysOn = true;
     }XOSC32K;
+
+    struct {
+      bool enabled[OSCCTRL_XOSCS_NUM] = { false, false };
+      uint32_t freq[OSCCTRL_XOSCS_NUM] = {8000000, 8000000};
+      uint8_t startupTimeSel = 4;
+      bool autoLoopCtrl = true;
+      bool lowBufferGain = false;
+      bool onDemand = false;
+      bool runInStandby = false;
+    }XOSC;
 
     struct {
       bool enabled = true;
@@ -55,7 +70,7 @@ struct SystemConfig {
 
     struct {
       bool enabled[OSCCTRL_DPLLS_NUM] = {true, true};
-      uint32_t freq[OSCCTRL_DPLLS_NUM] = {112000000, 112000000};
+      uint32_t freq[OSCCTRL_DPLLS_NUM] = {120000000, 120000000};
       bool onDemand = false;
       bool runInStandby = false;
       uint8_t xoscDivFactor = 0;
@@ -77,11 +92,20 @@ struct SystemConfig {
       bool runInStandby = false;
       bool improveDutyCycle = false;
     }GEN;
-    
+
     struct {
+      bool failiureDetection = true;
       uint8_t irqPriority = 2;
+      uint8_t cpuSrc = GCLK_SOURCE_DPLL0;
+      uint8_t cpuDivSelection = 1;
     }MISC;
-  }CLK
+  }CLK;
+
+  struct {
+    struct {
+
+    }SEEPROM;
+  }NVM;
 };
 
 // Default startup
@@ -95,15 +119,11 @@ class System_ {
 
   public:
 
-    SystemConfig *config;
-
     struct CLK_ {
 
       int8_t allocGCLK(uint32_t freq, uint16_t maxFreqOffset, SYS_PERIPHERAL peripheral);
 
       bool freeGCLK(uint8_t gclkNum);
-
-      uint8_t getStatus();
 
       protected:
         friend System_;
@@ -115,12 +135,25 @@ class System_ {
         bool agclk[GCLK_NUM] = {false};
         int8_t periphAlloc[GCLK_GEN_NUM] = {-1};
 
-
         bool initialize();
 
     }CLK{this};
 
+    struct PIN_ {
+      
+      bool configurePin(SYS_PERIPHERAL peripheral, PIN_CONFIG config, bool enablePullup);
+
+
+      private:
+        friend System_;
+        const System_ *super;
+        explicit PIN_(System_ *sys) : super(sys);
+    }PIN{this};
+
   private:
+    friend CLK_;
+    SystemConfig *config;
+
     System_() {}
 };
 
