@@ -421,7 +421,6 @@ bool System_::CLK_::initialize() {
       OSCCTRL->XOSCCTRL[i].bit.LOWBUFGAIN = (uint8_t)super->config->CLK.XOSC.lowBufferGain;
       OSCCTRL->XOSCCTRL[i].bit.ONDEMAND = (uint8_t)super->config->CLK.XOSC.onDemand;
       OSCCTRL->XOSCCTRL[i].bit.RUNSTDBY = (uint8_t)super->config->CLK.XOSC.runInStandby;
-
       OSCCTRL->XOSCCTRL[i].bit.CFDEN = (uint8_t)super->config->CLK.MISC.failiureDetection;
       OSCCTRL->XOSCCTRL[i].bit.SWBEN = (uint8_t)super->config->CLK.MISC.failiureDetection;
 

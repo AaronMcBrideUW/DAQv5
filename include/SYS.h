@@ -98,6 +98,7 @@ struct SystemConfig {
       uint8_t irqPriority = 2;
       uint8_t cpuSrc = GCLK_SOURCE_DPLL0;
       uint8_t cpuDivSelection = 1;
+      uint32_t freqUncertainty 400;
     }MISC;
   }CLK;
 
