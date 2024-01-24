@@ -14,35 +14,22 @@ template <typename T> T CLAMP(const T& value, const T& low, const T& high) {
   return value < low ? low : (value > high ? high : value); 
 }
 
-
-
 template<typename T> class Array {
-
   public:
 
-    //// CONSTRUCTORS ////
     Array(size_t length) : length(length) { arr = new T[length]; }
-
     Array(size_t length, const T &value) : Array(length) { fill(value); } 
-
     Array(const Array &other) { copy(other, true); }
 
-    //// OPERATORS ////
     T &operator [] (const size_t &index) { get(index); }
-
     void operator = (const Array &other) { copy(other, true); }
     
-    //// METHODS ////
     size_t length() const { return length; }
-
     size_t size() const { return sizeof(T) * length; }
+    T &get(const size_t index) { return arr[MAX<unsigned int>(index, length - 1)]; }
 
     void fill(const T value) { 
       memset(&arr, value, sizeof(T) * length); 
-    }
-
-    T &get(const size_t index) { 
-      return arr[MAX<unsigned int>(index, length - 1)];
     }
 
     void copy(const Array &other, const bool resize) {
@@ -62,7 +49,7 @@ template<typename T> class Array {
 };
 
 
-template<typename T> void ceilToSet(const Array<T, 3> &set, const int setLength, T &value) {
+template<typename T> void ceilToSet(const Array<T> &set, T &value) {
 
   for (int i = 0; i < setLength, )
 
