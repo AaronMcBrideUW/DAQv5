@@ -5,9 +5,10 @@
 template<typename T> T MAX(const T value, const T &max);
 template<typename T> T MIN(const T value, const T min);
 template <typename T> T CLAMP(const T value, const T low, const T high);
+long DIV_INT(const long num, const long den, bool toCeil);
+template<typename T> void CEIL_TO_SET(const T value, const Array<T> &set);
+template<typename T> void FLOOR_TO_SET(const T value, const Array<T> &set);
 template<typename T> class Array;
-template<typename T> void cielToSet(const T value, const Array<T> &set);
-template<typename T> void floorToSet(const T value, const Array<T> &set);
 template<typename T> class Setting;
 template<typename T> void lockSetting(Setting<T> &targ, bool settingLocked);
 template<typename T> void setSetting(Setting<T> &targ, T value);
@@ -35,14 +36,41 @@ template<typename T> T CLAMP(const T value, const T low, const T high) {
   return value < low ? low : (value > high ? high : value); 
 }
 
-int divCeil(const int num, const int den) {
-  if (!num || !num) return T();
-  return num / den + !(((num < 0) != (den < 0)) || !(num % den));
+/// @brief Divides two numbers
+/// @param num Numerator
+/// @param den Denominator
+/// @param ceilResult If true the result of the division is rounded up
+long  DIV_INT(const long num, const long long den, bool ceilResult = false) {
+  if ((num <= INT64_MIN && den == -1) || !num || !den) return 0;
+  return ceilResult ? num / den + !(((num < 0) != (den < 0)) || !(num % den)) : num / den;
 }
 
-template<typename T> T div(const T num, const T den) {
-  if (!num || !den) return T();
-  return num / den;
+/// @brief Restricts a value to a specific set of values by rounding it up
+/// @param value The value to restrict to the set
+/// @param set The set of values that are allowed 
+template<typename T> void CEIL_TO_SET(T value, const Array<T> &set) {
+  int cielI, cielV;
+  for (int i = 0; i < set.length, i++) {
+    if (set[cielI] - value < cielV) {
+      cielV = set[cielI] - value;
+      cielI = i;
+    }
+  }
+  return set[cielI];
+}
+
+/// @brief Restricts a value to a specific set of values by rounding it down
+/// @param value The value to restrict to the set
+/// @param set The set of values that are allowed
+template<typename T> T FLOOR_TO_SET(T value, const Array<T> &set) {
+  int floorI, floorV;
+  for (int i = 0; i < set.length; i++) {
+    if (value - set[floorI] < floorV) {
+      floorV = value - set[floorV];
+      floorI = i;
+    }
+  }
+  return set[floorI];
 }
 
 /// @brief Array wrapper obj - preserves size/length information when passed
@@ -53,11 +81,13 @@ template<typename T> class Array {
     const size_t length = 0; 
 
     /// @brief Constructs an array object with a specified size.
+    /// @param length Number of indicies in the array
     Array(size_t length) : length(length) { 
       arr = new T[length]; 
     }
 
-    /// @brief Copy constructor 
+    /// @brief Copy constructor
+    /// @param other Other array obj of the same type to be copied.
     Array(Array<T> &other) : Array(other.length) { 
       memcpy(&arr, &other.arr, size()); 
     }
@@ -74,7 +104,9 @@ template<typename T> class Array {
       }
     }
 
-    /// @brief Returns the value @ the specified index in the array
+    /// @brief Used for accessing values in the array
+    /// @param index Index number to be accessed.
+    /// @return A reference to the value at the specified index
     T &operator [] (const size_t &index) { 
       return arr[MAX<size_t>(index, length)]; 
     }
@@ -104,34 +136,6 @@ template<typename T> class Array {
     T *arr = nullptr;       // Array 
 };
 
-/// @brief Restricts a value to a specific set of values by rounding it up
-/// @param value The value to restrict to the set
-/// @param set The set of values that are allowed 
-template<typename T> void cielToSet(T value, const Array<T> &set) {
-  int cielI, cielV;
-  for (int i = 0; i < set.length, i++) {
-    if (set[cielI] - value < cielV) {
-      cielV = set[cielI] - value;
-      cielI = i;
-    }
-  }
-  return set[cielI];
-}
-
-/// @brief Restricts a value to a specific set of values by rounding it down
-/// @param value The value to restrict to the set
-/// @param set The set of values that are allowed
-template<typename T> T floorToSet(T value, const Array<T> &set) {
-  int floorI, floorV;
-  for (int i = 0; i < set.length; i++) {
-    if (value - set[floorI] < floorV) {
-      floorV = value - set[floorV];
-      floorI = i;
-    }
-  }
-  return set[floorI];
-}
-
 /// @brief Wraps values around a range
 /// @param value The value of the number to wrap
 /// @param min The minimum value of the range
@@ -142,7 +146,7 @@ template<typename T> T wrapValue(T value, const T min, const T max) {
 }
 
 /// @brief This class provides functionality for creating easily modifiable settings
-///        that are restricted via either a range or a set of allowable values. 
+/// that are restricted via either a range or a set of allowable values. 
 template<typename T> class Setting {
   public:
     /// @brief This constructor creates a setting that is restricted via a min/max.

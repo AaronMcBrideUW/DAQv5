@@ -6,29 +6,35 @@
 
 typedef void (*oscCB)(OSC_ID, OSC_STATUS);
 
-enum OSC_ID : uint8_t {
+enum OSC_ID : unsigned int {
 
 };
 
-enum OSC_STATUS : uint8_t {
+enum OSC_STATUS : unsigned int {
 
 };
 
+
+void set_osculp(bool enabled);
+
+int get_osculp_freq();
 
 struct {
   bool highSpeedMode = false;
   bool onDemand = true;
   bool runInStandby = false;
-  bool output1khz = true;
-  bool output32khz = true;
   bool outputSignal = false;
   bool enableCFD = true;
 }xosc32k_config;
 
-void set_osculp(bool enabled);
+enum XOSC32K_OUTPUT {
+  XOSC32K_OUTPUT_1KHZ,
+  XOSC32K_OUTPUT_32KHZ
+};
 
-void set_xosc32k(bool enabled = true, int startupTime = 0, bool waitForLock = false);
+void set_xosc32k(bool enabled = true, XOSC32K_OUTPUT outputSel, unsigned int startupTime = 0, bool waitForLock = false);
 
+int get_xosc32k_freq();
 
 struct {
   bool onDemand = true;
@@ -44,5 +50,25 @@ struct {
   uint8_t fineAdj = 0;
 }dfll_config;
 
-bool set_dfll(bool enabled, uint32_t freq, bool closedCycleMode, bool waitForLock);
+bool set_dfll(bool enabled, unsigned int freq, bool closedLoopMode, bool waitForLock);
+
+struct {
+  bool onDemand = true;
+  bool runInStandby = false;
+  uint8_t dcoFilterSel = 0;
+  bool lockTimeout = true;
+  bool wakeUpFast = false;
+  uint8_t integralFilterSel = 0;
+  bool ceilFreq;
+}dpll_config[OSCCTRL_DPLLS_NUM];
+
+enum DPLL_REF : uint8_t {
+  DPLL_REF_GCLK0 = 0,
+  DPLL_REF_XOSC32K = 1,
+  DPLL_REF_XOSC0 = 2,
+  DPLL_REF_XOSC1 = 3
+};
+
+bool set_dpll(unsigned int dpllNum, bool enabled, DPLL_REF reference, 
+  unsigned int freq);
 
