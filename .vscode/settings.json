@@ -3,6 +3,7 @@
     "cstddef": "cpp",
     "type_traits": "cpp",
     "limits": "cpp",
-    "cmath": "cpp"
+    "cmath": "cpp",
+    "random": "cpp"
   }
 }
