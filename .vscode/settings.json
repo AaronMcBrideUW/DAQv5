@@ -4,7 +4,9 @@
     "type_traits": "cpp",
     "limits": "cpp",
     "cmath": "cpp",
-    "random": "cpp"
+    "random": "cpp",
+    "*.tcc": "cpp",
+    "streambuf": "cpp"
   },
   "cmake.configureOnOpen": false
 }
