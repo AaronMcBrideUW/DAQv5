@@ -6,7 +6,8 @@
     "cmath": "cpp",
     "random": "cpp",
     "*.tcc": "cpp",
-    "streambuf": "cpp"
+    "streambuf": "cpp",
+    "cstdlib": "cpp"
   },
   "cmake.configureOnOpen": false
 }
