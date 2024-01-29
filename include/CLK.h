@@ -34,10 +34,12 @@ enum RTC_SOURCE : uint8_t {
 /// @return True if frequency was set, false otherwise
 bool set_cpu_freq(int freq, bool highSpeedDomain);
 
+
 /// @brief Gets the frequency of the specified cpu domain
 /// @param highSpeedDomain True = get high speed domain freq, false = get regular speed domain freq
 /// @return An integer, equal to the frequency of the specified cpu domain
 int get_cpu_freq(bool highSpeedDomain);
+
 
 /// @brief Sets the source for the real time clock
 /// @param source The source oscillator (ENUM - RTC_...) that the real time clock will use
@@ -75,6 +77,7 @@ enum GCLK_SOURCE : uint8_t {
 /// @return True if the GCLK was set, false otherwise
 bool set_gclk(int gclkNum, bool enabled, GCLK_SOURCE source = GCLK_NULL, int freq = 0);
 
+
 /// @brief Configures a GCLK peripheral channel
 /// @param channelNum The id number of the channel to configure 
 /// @param linkEnabled True = enable channel, false = disable channel 
@@ -82,10 +85,12 @@ bool set_gclk(int gclkNum, bool enabled, GCLK_SOURCE source = GCLK_NULL, int fre
 /// @return True if the channel was set, false otherwise
 bool set_gclk_channel(int channelNum, bool channelEnabled, int gclkNum = 0);
 
+
 /// @brief Gets the frequency of a GCLK
 /// @param gclkNum The id number of the GCLK
 /// @return An integer equal to the current frequency of the GCLK
 int get_gclk_freq(int gclkNum);
+
 
 /// @brief Gets all channels linked to a GCLK
 /// @param gclkNum The id number of the GCLK
@@ -95,17 +100,18 @@ int get_gclk_freq(int gclkNum);
 ///         an error occured
 int get_gclk_channels(int gclkNum, int *resultArray, int arrayLength);
 
+
 /// @brief Gets the id number of the GCLK linked to a channel
 /// @param channeNum The number of the GCLK channel
 /// @return An integer equal to the ID number of the GCLK linked to the channel, or -1
 ///         if the channel is disabled, not linked, or an error occured.
 int get_channel_gclk(int channeNum);
 
+
 /// @brief Gets the status of a GCLK 
 /// @param gclkNum The id number of the GCLK
 /// @return The status of the GCLK channel (ENUM - GCLK_STATUS_...)
 OSC_STATUS get_gclk_status(int gclkNum);
-
 
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -125,9 +131,11 @@ enum OSCULP_FREQ {
 /// @return True if the oscillator was set, false otherwise
 bool set_osculp(bool enabled, OSCULP_FREQ freqSel = OSCULP_FREQ_NULL);
 
+
 /// @brief Gets the frequency of the ultra lower power oscillator (OSCULP)
 /// @return An integer equal to the OSCULP, or -1 if it is disabled
 int get_osculp_freq();
+
 
 /// @brief Gets the status of the ultra lower power oscillator (OSCULP)
 /// @return The status of the OSCULP (ENUM - OSC_STATUS_...)
@@ -163,9 +171,11 @@ enum XOSC32K_FREQ {
 bool set_xosc32k(bool enabled, XOSC32K_FREQ freqSel = XOSC32K_FREQ_NULL, int startupTime = 0, 
   bool waitForLock = false);
 
+
 /// @brief Gets the frequency of the external crystal oscillator (XOSC32K)
 /// @return An integer equal to the frequency of the XOSC32K, or -1 if it is disabled
 int get_xosc32k_freq();
+
 
 /// @brief Gets the status of the external crystal oscillator (XOSC32K)
 /// @return The status of the XOSC32K (ENUM - OSC_STATUS_...)
@@ -202,9 +212,11 @@ struct {
 bool set_dfll(bool enabled, int freq = 0, bool closedLoopMode = false, int gclkNum = -1, 
   bool waitForLock = true);
 
+
 /// @brief Gets the current frequency of the digital frequency locked loop oscillator (DFLL)
 /// @return An integer equal to the frequency of the DFLL, or -1 if it is disabled
 int get_dfll_freq();
+
 
 /// @brief Gets the status of the digital frequency locked loop oscillator (DFLL)
 /// @return The status of the DFLL (ENUM - OSC_STATUS_...)
@@ -245,10 +257,12 @@ enum DPLL_SRC : uint8_t {
 bool set_dpll(int dpllNum, bool enabled, DPLL_SRC source = DPLL_SRC_NULL, int freq = 0, 
   bool waitForLock = true);
 
+
 /// @brief Gets the frequency of a digital phase locked loop oscillator (DPLL)
 /// @param dpllNum The id number of the target DPLL
 /// @return An integer equal to the current frequency of the target DPLL, or -1 if it is disabled.
 int get_dpll_freq(int dpllNum);
+
 
 /// @brief Gets the status of a digital phase locked loop oscillator (DPLL)
 /// @param dpllNum The id number of the target DPLL

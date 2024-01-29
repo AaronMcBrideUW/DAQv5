@@ -334,6 +334,7 @@ bool set_dfll(bool enabled, int freq, bool closedLoopMode, int gclkNum, bool wai
         
         if (get_gclk_freq(gclkNum) <= 0) {
           uint8_t refSel = DFLL_PRIMARY_REF;
+
           if (DFLL_PRIMARY_FREQ <= 0) {
             if (DFLL_BACKUP_FREQ <= 0) 
               return false;
@@ -420,7 +421,7 @@ OSC_STATUS get_dfll_status() {
 //// SECTION -> DFLL FUNCTIONS
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-bool set_dpll(int dpllNum, bool enabled, DPLL_SRC source, int freq, bool waitForLock) {     // Possibly add dynamic freq updating
+bool set_dpll(int dpllNum, bool enabled, DPLL_SRC source, int freq, bool waitForLock) {  
   if (!validDpll(dpllNum)) 
     return false;
 

@@ -1,40 +1,83 @@
 
 #include "SYS.h"
 
-const char PERIPH_REF[] = 
-  {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N'};
-const int PERIPH_COUNT = sizeof(PERIPH_REF) / sizeof(PERIPH_REF[0]);
+#define port PORT->Group[pin->group]
+
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION -> PIN FUNCTIONS
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-bool set_pin_multi(int pinNum, bool enabled, char peripheral, PIN_MODE mode) {
-  const PIN_DESCRIPTOR *pin = get_pin(pinNum);
-  if (pin == nullptr)
-    return false; 
+bool set_pin(int pinID, PIN_MODE mode, bool strongDrive) {
+  const PIN_DESCRIPTOR *pin = get_pin(pinID);
+  if (!pin)
+    return false;   
 
-  #define port PORT->Group[pin->group]
-  if (enabled) {
-    for (int i = 0; i < PERIPH_COUNT; i++) {
-      if (PERIPH_REF[i] == peripheral) {
-        break;
-      } else if (i >= PERIPH_COUNT - 1) {
-        return false;
-      }
-    }
-    port.PMUX[pinNum].reg = (pinNum % 2) 
-      ? PORT_PMUX_PMUXE(peripheral) : PORT_PMUX_PMUXO(peripheral);
-    port.PINCFG[pinNum].reg = 
-        ((uint8_t)(mode == PIN_MODE_INPUT || mode == PIN_MODE_INPUT_PULLUP)
-          << PORT_PINCFG_INEN_Pos)
-      | ((uint8_t)(mode == PIN_MODE_OUTPUT_PULLUP || mode == PIN_MODE_INPUT_PULLUP)
-          << PORT_PINCFG_PULLEN_Pos)
-      | PORT_PINCFG_PMUXEN
-      | PORT_PINCFG_DRVSTR;
-  
+  if (mode == PIN_DISABLED) {
+    port.PINCFG[pin->number].reg = PORT_PINCFG_RESETVALUE;
+    port.PMUX[pin->number].reg = PORT_PMUX_RESETVALUE;
+    port.DIRCLR.reg |= (1 << pin->number);
+    port.OUTCLR.reg |= (1 << pin->number);
+
   } else {
-    port.PINCFG[pinNum].bit.PMUXEN = 0;
+      port.PMUX[pin->number].reg = (pin->number % 2) ? PORT_PMUX_PMUXE((uint8_t)mode) 
+        : PORT_PMUX_PMUXO((uint8_t)mode);
+
+      port.PINCFG[pin->number].reg = PORT_PINCFG_MASK
+        | ((uint8_t)(mode != PIN_GPIO) << PORT_PINCFG_PMUXEN_Pos)
+        | ((uint8_t)strongDrive << PORT_PINCFG_DRVSTR_Pos)
+        | PORT_PINCFG_INEN;
+
+      port.DIRCLR.reg |= (1 << pin->number);
+      port.OUTCLR.reg |= (1 << pin->number);
   }
   return true;
+}
+
+bool pull_pin(int pinID, int pullType) {
+  const PIN_DESCRIPTOR *pin = get_pin(pinID);
+  if (!pin)
+    return false;
+
+  port.DIRCLR.reg |= (1 << pin->number);
+  port.PINCFG[pin->number].bit.PULLEN = (uint8_t)abs(pullType);
+
+  if (pullType > 0) {
+    port.OUTSET.reg |= (1 << pin->number);
+  } else {
+    port.OUTCLR.reg |= (1 << pin->number);
+  }
+}
+
+bool drive_pin(int pinID, bool high) {
+  const PIN_DESCRIPTOR *pin = get_pin(pinID);
+  if (!pin)
+    return false;
+
+  port.DIRSET.reg |= (1 << pin->number);
+
+  if (high) {
+    port.OUTSET.reg |= (1 << pin->number);
+
+  } else {
+    port.OUTCLR.reg |= (1 << pin->number);
+  }
+}
+
+int read_pin(int pinID) {
+  const PIN_DESCRIPTOR *pin = get_pin(pinID);
+  if (!pin)
+    return -1;
+
+  port.DIRCLR.reg |= (1 << pin->number);
+  return (uint8_t)(port.IN.reg & (1 << pin->number));
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// SECTION -> PROG FUNCTIONS
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+void prog_restart() {
+  __disable_irq();
+  NVIC_SystemReset();
 }

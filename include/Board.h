@@ -6,34 +6,35 @@
 #include <inttypes.h>
 #include "sam.h"
 
-struct PIN_DESCRIPTOR {
-  const uint8_t number;
-  const uint8_t group;
-};
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// SECTION -> BOARD DEFS
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+#define BOARD_ID FEATHER_M4_CAN
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION -> PIN REFERENCE
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-const PIN_DESCRIPTOR PIN_REF[] = {
+struct PIN_DESCRIPTOR {
+  const uint8_t uniqueID;
+  const uint8_t number;
+  const uint8_t group;
+};
+
+static const PIN_DESCRIPTOR PIN_REF[] = {
   {1, 1}
 }; 
-const int PIN_COUNT = sizeof(PIN_REF) / sizeof(PIN_REF[0]);
+static const int PIN_COUNT = sizeof(PIN_REF) / sizeof(PIN_REF[0]);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-//// SECTION -> MISC FUNCTIONS
+//// SECTION -> HELPER FUNCTIONS
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-const PIN_DESCRIPTOR *get_pin(int pinNum) {
-  for (int i = 0; i < PIN_COUNT; i++) {
-    if (PIN_REF[i].number == pinNum) {
-      return &PIN_REF[i];
-    } else if (i >= PIN_COUNT - 1) {
-      return nullptr;
-    }
-  }
+const PIN_DESCRIPTOR *get_pin(int uniqueID) {
+  return &PIN_REF[uniqueID];
 }
 
-bool valid_pin(int pinNum) {
-  return get_pin != nullptr;
+bool valid_pin(int uniqueID) {
+  return get_pin(uniqueID) != nullptr;
 } 
