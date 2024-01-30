@@ -7,34 +7,42 @@
 #include "sam.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-//// SECTION -> BOARD DEFS
+//// SECTION -> OUTLINE (DONT CHANGE)
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-#define BOARD_ID FEATHER_M4_CAN
+//// NOTE: The "ID" of a component is it's descriptor's INDEX in the associated ref array
 
-///////////////////////////////////////////////////////////////////////////////////////////////////
-//// SECTION -> PIN REFERENCE
-///////////////////////////////////////////////////////////////////////////////////////////////////
 
-struct PIN_DESCRIPTOR {
-  const uint8_t uniqueID;
-  const uint8_t number;
+struct PIN_DESCRIPTOR { 
+  const uint8_t number; 
+  const uint8_t group; 
+};
+
+struct PERIPH_DESCRIPTOR {
   const uint8_t group;
 };
 
-static const PIN_DESCRIPTOR PIN_REF[] = {
+#define BOARD_PIN_COUNT (sizeof(BOARD_PINS) / sizeof(BOARD_PINS[0]))
+#define BOARD_PERIPH_COUNT (sizeof(BOARD_PERIPHS) / sizeof (BOARD_PERIPHS[0]))
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// SECTION -> BOARD DEFS (CHANGE FOR BOARD)
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// @def Board identifier
+#define BOARD_ID FEATHER_M4_CAN
+
+extern const PERIPH_DESCRIPTOR BOARD_PERIPHS[] = {
+  {1}
+  {2}
+  {3}
+  {4}
+  {5}
+};
+ 
+
+/// @brief Available pins & their descriptors
+extern const PIN_DESCRIPTOR BOARD_PINS[] = {
   {1, 1}
 }; 
-static const int PIN_COUNT = sizeof(PIN_REF) / sizeof(PIN_REF[0]);
 
-///////////////////////////////////////////////////////////////////////////////////////////////////
-//// SECTION -> HELPER FUNCTIONS
-///////////////////////////////////////////////////////////////////////////////////////////////////
-
-const PIN_DESCRIPTOR *get_pin(int uniqueID) {
-  return &PIN_REF[uniqueID];
-}
-
-bool valid_pin(int uniqueID) {
-  return get_pin(uniqueID) != nullptr;
-} 

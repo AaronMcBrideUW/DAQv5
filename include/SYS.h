@@ -11,33 +11,13 @@
 //// SECTION -> PIN FUNCTIONS
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-enum PIN_MODE {
-  PIN_DISABLED = 14,
-  PIN_GPIO     = 15,
-  PIN_PERIPH_A = 0, 
-  PIN_PERIPH_B = 1,
-  PIN_PERIPH_C = 2, 
-  PIN_PERIPH_D = 3, 
-  PIN_PERIPH_E = 4,
-  PIN_PERIPH_F = 5, 
-  PIN_PERIPH_G = 6, 
-  PIN_PERIPH_H = 7, 
-  PIN_PERIPH_J = 8, 
-  PIN_PERIPH_I = 9,
-  PIN_PERIPH_K = 10, 
-  PIN_PERIPH_L = 11, 
-  PIN_PERIPH_M = 12, 
-  PIN_PERIPH_N = 13
-};
+bool reset_pin(int pinID);
 
-bool set_pin(int pinID, PIN_MODE mode, bool strongDrive = true);
+bool attach_pin(int pinID, int periphID);
 
-bool pull_pin(int pinID, int pullType = 1);
-
-bool drive_pin(int pinID, bool high);
+bool set_pin(int pinID, int pinState, bool pullPin = false);
 
 int read_pin(int pinID);
-
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION -> PROG FUNCTIONS
