@@ -218,6 +218,11 @@ bool set_dfll(bool enabled, int freq = 0, bool closedLoopMode = false, int gclkN
 int get_dfll_freq();
 
 
+/// @brief Gets the error in the dfll's current frequency
+/// @return A float dennoting the error percentage in the frequency reported by get_dfll_freq (0-1)
+float get_dfll_drift();
+
+
 /// @brief Gets the status of the digital frequency locked loop oscillator (DFLL)
 /// @return The status of the DFLL (ENUM - OSC_STATUS_...)
 OSC_STATUS get_dfll_status();

@@ -37,7 +37,7 @@ extern const PERIPH_DESCRIPTOR BOARD_PERIPHS[] = {
   {2}
   {3}
   {4}
-  {5}
+  {}
 };
  
 

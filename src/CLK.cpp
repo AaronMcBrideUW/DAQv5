@@ -403,6 +403,14 @@ int get_dfll_freq() {
   return 0;
 }
 
+float get_dfll_drift() {
+  if (OSCCTRL->DFLLCTRLA.bit.ENABLE && OSCCTRL->DFLLCTRLB.bit.MODE) {
+    return (float)OSCCTRL->DFLLVAL.bit.DIFF / (float)OSCCTRL->DFLLMUL.bit.MUL;
+  } else {
+    return -1.0;
+  }
+}
+
 OSC_STATUS get_dfll_status() {
   if (OSCCTRL->STATUS.bit.DFLLOOB || OSCCTRL->STATUS.bit.DFLLRCS) {
     return OSC_STATUS_ERROR;
