@@ -21,7 +21,7 @@ bool set_pin(int pinID, int pinState, bool pullPin = false);
 int read_pin(int pinID);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-//// SECTION -> NVM FUNCTIONS
+//// SECTION -> FLASH MEM FUNCTIONS
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 struct {
@@ -36,36 +36,99 @@ enum FLASH_ERROR {
   FLASH_ERROR_ADDR
 };
 
-int write_flash(const volatile void *flash, void *data, int writeCount, 
+int write_flash_data(uint32_t flashAddr, const volatile void *dataAddr, int writeCount, 
+  int dataAlignment, bool writePage);
+int write_flash_data(const volatile void *flashPtr, const volatile void *dataPtr, int writeCount, 
   int dataAlignment, bool writePage);
 
-int read_flash(const volatile void *flash, void *dest, int copyCount, int dataAlignment);
+int read_flash_data(uint32_t flashAddr, void *destPtr, int copyCount, int dataAlignment);
+int read_flash_data(const volatile void *flashPtr, void *destPtr, int copyCount, int dataAlignment);
 
 bool erase_flash(int blockIndex);
+bool erase_flash(const volatile void *flashPtr);
 
-const volatile void *flash_addr(int addr); // To do -> Add page num primary
+bool get_flash_lock(int regionIndex);
+bool get_flash_lock(const volatile void *flashPtr);
 
-bool get_flash_locked(int pageNumber);
-bool get_flash_locked(const volatile void *flash, int bytes = 0); // To do -> Add page num primary
+bool set_flash_lock(int regionIndex, bool locked);
+bool set_flash_lock(const volatile void *flashPtr, bool locked);
 
-bool set_flash_lock(const volatile void *flash, bool locked); // To do -> Add page num primary
+int get_flash_page(uint32_t flashAddr);
+int get_flash_page(const volatile void *flashPtr);
 
-FLASH_ERROR get_flash_error();
+int get_flash_block(uint32_t flashAddr);
+int get_flash_block(const volatile void *flashPtr);
+
+int get_flash_region(uint32_t flashAddr);
+int get_flash_region(const volatile void *flashPtr);
+
+FLASH_ERROR get_flash_error(); 
 
 template<typename T>
-T get_flash_value(const volatile void *flash) {
-  if (!flash || (uint32_t)flash > FLASH_MAX_ADDR || get_flash_locked(flash))
+T read_flash_value(uint32_t flashAddr) {
+  if (!validFAddr(flashAddr))
     return T();
-  T *valuePtr = static_cast<T*>(flash);
-  return valuePtr == nullptr ? T() : *valuePtr;
+  T *valuePtr = static_cast<T*>(flashAddr);
+  return (valuePtr == null ? T() : *valuePtr);
+}
+template<typename T>
+T read_flash_value(const volatile void *flashPtr) {
+  return read_flash_value<T>((uint32_t)flashPtr);
 }
 
 template<typename T>
-const volatile T *get_flash_ptr(const volatile void *flash) {
-  if (!flash || (uint32_t)flash > FLASH_MAX_ADDR || get_flash_locked(flash))
+const volatile T *read_flash_ptr(uint32_t flashAddr) {
+  if (!validFAddr(flashAddr))
     return nullptr;
-  return reinterpret_cast<T*>(flash);
+  return reinterpret_cast<T*>(flashAddr);
 }
+template<typename T>
+const volatile T *read_flash_ptr(const volatile void *flashPtr) {
+  return read_flash_ptr<T>((uint32_t)flashPtr);
+}
+
+/* TO DO
+template<typename T>
+int write_flash_value(uint32_t flashAddr, T value) {
+  if (!validFAddr(flashAddr))
+    return 0;
+  (const volatile void*)flashAddr = ()
+}
+*/
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// SECTION -> SMART EEPROM FUNCTIONS
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+enum SEEPROM_STATE {
+  SEEPROM_NULL,
+  SEEPROM_INIT,
+  SEEPROM_BUSY,
+  SEEPROM_FULL,
+  SEEPROM_OVERFLOW
+};
+
+struct {
+  bool enablePageBuffer = false;
+}seeprom_config;
+
+bool init_seeprom(int minBytes);
+
+bool write_seeprom_data(uint32_t seeAddr, void *data, int byteCount, bool blocking = false);
+
+bool read_seeprom_data(uint32_t seeAddr, void *dest, int byteCount, bool blocking = false);
+
+bool set_sector(int sectorNum, bool); // TO DO
+
+bool flush_sector() // TO DO
+
+int get_seeprom_size();
+
+bool set_seeprom_lock(bool enabled);
+
+bool get_seeprom_locked();
+
+SEEPROM_STATE get_seeprom_state();
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION -> PROG FUNCTIONS

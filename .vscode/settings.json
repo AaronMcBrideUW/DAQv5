@@ -7,7 +7,10 @@
     "random": "cpp",
     "*.tcc": "cpp",
     "streambuf": "cpp",
-    "cstdlib": "cpp"
+    "cstdlib": "cpp",
+    "array": "cpp",
+    "string": "cpp",
+    "string_view": "cpp"
   },
   "cmake.configureOnOpen": false
 }

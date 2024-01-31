@@ -6,17 +6,41 @@
 #define pgroup PORT->Group[pin.group]
 
 //// FLASH DEFS ////
-#define FLASH_BLOCK_SIZE NVMCTRL_BLOCK_SIZE
-#define FLASH_PAGE_SIZE (2 << (NVMCTRL->PARAM.bit.PSZ + 3))
-#define FLASH_QUAD_SIZE 8
-#define FLASH_PAGE_COUNT (NVMCTRL->PARAM.bit.NVMP)
-#define FLASH_BLOCK_COUNT (FLASH_PAGE_COUNT / FLASH_BLOCK_SIZE)
-#define FLASH_MIN_ADDR 0
-#define FLASH_MAX_ADDR ((FLASH_PAGE_COUNT * FLASH_PAGE_SIZE) / 4)
-#define FLASH_DATA_SIZE 4
-#define _FRDY_ while(!NVMCTRL->STATUS.bit.READY);
-#define _FDONE_ while(!NVMCTRL->INTFLAG.bit.DONE); \
-                NVMCTRL->INTFLAG.bit.DONE = 1;
+#define RAM_START           (HSRAM_ADDR + 4)
+#define RAM_END             (HSRAM_ADDR + HSRAM_SIZE)
+#define BKUP_RAM_START      BKUPRAM_ADDR
+#define BKUP_RAM_END        (BKUPRAM_ADDR + BKUPRAM_SIZE)
+#define FLASH_START         ((FLASH_PAGE_COUNT * FLASH_PAGE_SIZE) / 4)
+#define FLASH_END           FLASH_ADDR
+#define FLASH_REGION_SIZE   ((FLASH_SIZE / 32) * 1000)
+#define FLASH_BLOCK_SIZE    NVMCTRL_BLOCK_SIZE
+#define FLASH_PAGE_SIZE     (2 << (NVMCTRL->PARAM.bit.PSZ + 3))
+#define FLASH_QUAD_SIZE     (__SIZEOF_SHORT__ * 4)
+#define FLASH_DATA_SIZE     __SIZEOF_POINTER__
+#define FLASH_PAGE_COUNT    (NVMCTRL->PARAM.bit.NVMP)
+#define FLASH_MAX_ALIGN     FLASH_QUAD_SIZE
+#define FLASH_BLOCK_COUNT   (FLASH_PAGE_COUNT / FLASH_BLOCK_SIZE)
+#define _FRDY_              while(!NVMCTRL->STATUS.bit.READY);
+#define _FDONE_             while(!NVMCTRL->INTFLAG.bit.DONE); \
+                            NVMCTRL->INTFLAG.bit.DONE = 1;
+
+//// SEEPROM DEFS ////
+#define SEE_DEFAULT_BLOCKS 2
+#define SEE_DEFAULT_PAGES 64
+#define SEE_MAX_WRITE NVMCTRL_PAGE_SIZE
+#define SEE_MAX_READ NVMCTRL_PAGE_SIZE
+
+static uint8_t UP[FLASH_USER_PAGE_SIZE] = { 0 }; // User Page
+static const uint32_t SEE_REF[8][3] {
+  {512, 1, 4},
+  {1024, 1, 8},
+  {2048, 1, 16},
+  {4096, 1, 32},
+  {8192, 2, 64},
+  {16384, 3, 128},
+  {32768, 5, 256},
+  {65536, 10, 512}
+};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION -> PIN LOCAL
@@ -45,9 +69,6 @@ bool reset_pin(int pinID) {
   return true;
 }
 
-
-
-
 bool attach_pin(int pinID, int periphID) {
   if (!validPin(pinID))
     return false;
@@ -63,8 +84,6 @@ bool attach_pin(int pinID, int periphID) {
   }
   return true;
 }
-
-
 
 bool drive_pin(int pinID, int pinState, bool pullPin) {
   if (!validPin(pinID))
@@ -93,8 +112,6 @@ bool drive_pin(int pinID, int pinState, bool pullPin) {
   return true;
 }
 
-
-
 int read_pin(int pinID) {
   if (!validPin(pinID)) 
     return -1;
@@ -104,20 +121,32 @@ int read_pin(int pinID) {
   return (int)(pgroup.IN.reg & pmask);
 }
 
-
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION -> FLASH FUNCTIONS
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-int write_flash(const volatile void *flash, void *data, int dataCount, 
+static inline bool validFAddr(uint32_t addr) {
+  return addr >= FLASH_ADDR && addr <= FLASH_END && !get_flash_lock(addr);
+}
+
+static inline bool validRAddr(uint32_t addr) {
+  return ((addr >= RAM_START && addr <= RAM_END) 
+    || (addr >= BKUP_RAM_START && addr <= BKUP_RAM_END)); 
+}
+
+int write_flash_data(uint32_t flashAddr, uint32_t dataAddr, int dataCount, 
   int dataAlignment, bool writePage) {
 
-  if (!flash || !data || dataCount <= 0 || dataAlignment <= 0
-    || (uint32_t)flash < FLASH_MIN_ADDR || NVMCTRL->STATUS.bit.SUSP)
+  if (!validFAddr(flashAddr) 
+    ||!validRAddr(dataAddr) 
+    ||dataCount <= 0 
+    ||dataAlignment <= 0 
+    ||dataAlignment > FLASH_MAX_ALIGN
+    ||NVMCTRL->STATUS.bit.SUSP)
     return 0;
 
-  volatile uint32_t *flashMem = (volatile uint32_t*)flash;
-  const int writeSize = writePage ? FLASH_PAGE_SIZE : FLASH_QUAD_SIZE;
+
+  volatile uint32_t *flashMem = (volatile uint32_t*)flashAddr;  
   int bytesWritten = 0;
   bool commitPending = false;
 
@@ -142,83 +171,76 @@ int write_flash(const volatile void *flash, void *data, int dataCount,
         NVMCTRL_CTRLB_CMDEX_KEY 
       | NVMCTRL_CTRLB_CMD_PBC;
     _FDONE_
-    bytesWritten += writeSize;
+    bytesWritten += FLASH_QUAD_SIZE;
     commitPending = false;
   };
-  
-  uint8_t *data8 = (uint8_t*)data;
-  uint32_t *data32 = (uint32_t*)data;
 
-  if (dataAlignment > FLASH_DATA_SIZE) {
-    const int iterCount = dataCount * (int)ceil((float)dataAlignment 
-      / FLASH_DATA_SIZE);
-      
-    if ((uint32_t)flash + iterCount > FLASH_MAX_ADDR)
-      return bytesWritten;
-
-    for (int i = 0; i < iterCount; i++) {
-      flashMem[i] = data32[i];
-      commitPending = true;
-
-      if ((i * FLASH_DATA_SIZE) % writeSize == writeSize - 1) {
-        commitFlash();
-      }
-    }
-  } else {
+  if (dataAlignment % FLASH_DATA_SIZE != 0) { // Regular mode
+    uint8_t *data8 = reinterpret_cast<uint8_t*>(dataAddr);
     uint32_t byteBuff = 0;
-    if ((uint32_t)flash + dataCount > FLASH_MAX_ADDR)
-      return bytesWritten;
-
+  
     for (int i = 0; i < dataCount; i++) {
 
       for (int j = 0; j < dataAlignment; j++) {
-        byteBuff |= (data8[j + i * 4] << (j * 8));
+        byteBuff |= (data8[(i * dataAlignment) + j] << ((j % FLASH_DATA_SIZE) * 8));
+        commitPending = true;
+
+        if (j % FLASH_DATA_SIZE == FLASH_DATA_SIZE - 1 || j == dataAlignment - 1) {
+          *flashMem = byteBuff;
+          flashMem++;
+          byteBuff = 0;
+        }
       }
-      flashMem[i] = byteBuff;
-      byteBuff = 0;
-      commitPending = true;
-      
-      if (i % writeSize == writeSize - 1) {
-        commitFlash();
-      }
-    }
-  }
-  if (commitPending) {
-    if ((uint32_t)flash + (bytesWritten / 4) + writeSize / 4 < FLASH_MAX_ADDR) {
       commitFlash();
     }
+  } else { // Fast mode
+    uint32_t *data32 = reinterpret_cast<uint32_t*>(dataAddr); 
+    const int commitIndex = FLASH_QUAD_SIZE / FLASH_DATA_SIZE; 
+
+    for (int i = 0; i < dataCount * (dataAlignment / FLASH_DATA_SIZE); i++) {
+      flashMem[i] = data32[i];
+      commitPending = true;
+
+      if (i % commitIndex == commitIndex - 1) 
+        commitFlash();
+    }
   }
+  if (commitPending) 
+    commitFlash();
   return bytesWritten;
 }
 
 
-int copy_flash(const volatile void *flash, void *dest, int copyCount, 
+int read_flash_data(uint32_t flashAddr, uint32_t destAddr, int copyCount, 
   int dataAlignment) {
-  if (!flash || !dest || copyCount <= 0 || dataAlignment <= 0
-    || (uint32_t)flash < FLASH_MIN_ADDR)
+
+  if (!validFAddr(flashAddr) || !validRAddr(destAddr) || copyCount <= 0 
+    || dataAlignment <= 0 || dataAlignment > FLASH_MAX_ALIGN)
     return 0;
 
   int writtenBytes = 0;
   if (dataAlignment % FLASH_DATA_SIZE == 0) {
-    if ((uint32_t)flash + copyCount * dataAlignment > FLASH_MAX_ADDR)
+    copyCount *= dataAlignment;
+
+    if (flashAddr + copyCount > FLASH_END)
       return 0;
 
     NVMCTRL->CTRLA.bit.SUSPEN = 1;
-    memcpy(dest, (const void*)flash, copyCount * dataAlignment);
+    memcpy((void*)destAddr, (const void*)flashAddr, copyCount);
 
     NVMCTRL->CTRLA.bit.SUSPEN = 0;
-    writtenBytes = copyCount * dataAlignment;
+    writtenBytes = copyCount;
 
   } else {
     const int flashIter = (dataAlignment + FLASH_DATA_SIZE - 1) / FLASH_DATA_SIZE;
-    if ((uint32_t)flash + flashIter * copyCount > FLASH_MAX_ADDR)
+    if (flashAddr + flashIter * copyCount > FLASH_END)
       return 0;
 
     writtenBytes = copyCount;
     NVMCTRL->CTRLA.bit.SUSPEN = 1;
 
     for (int i = 0; i < copyCount; i++) {
-      memcpy(dest, (const void*)((uint32_t*)flash + i * flashIter), dataAlignment); 
+      memcpy((void*)destAddr, (const void*)(flashAddr + i * flashIter), dataAlignment); /// CHECK THIS
     }
     NVMCTRL->CTRLA.bit.SUSPEN = 0;
   }
@@ -226,14 +248,14 @@ int copy_flash(const volatile void *flash, void *dest, int copyCount,
 };
 
 bool erase_flash(int blockIndex) {
-  uint32_t const blockAddr = FLASH_MIN_ADDR + blockIndex * FLASH_BLOCK_SIZE;
+  uint32_t const blockAddr = FLASH_START + blockIndex * FLASH_BLOCK_SIZE;
   
-  if (blockAddr > FLASH_MAX_ADDR || blockAddr < FLASH_MIN_ADDR 
-    || NVMCTRL->STATUS.bit.SUSP || get_flash_locked(blockAddr))
+  if (blockAddr > FLASH_END || blockAddr < FLASH_START 
+    || NVMCTRL->STATUS.bit.SUSP || get_flash_lock(blockAddr))
     return false;
 
   _FRDY_
-  NVMCTRL->ADDR.reg = FLASH_MIN_ADDR + blockIndex * FLASH_BLOCK_SIZE;
+  NVMCTRL->ADDR.reg = FLASH_START + blockIndex * FLASH_BLOCK_SIZE;
   NVMCTRL->CTRLB.reg |= 
       NVMCTRL_CTRLB_CMDEX_KEY
     | NVMCTRL_CTRLB_CMD_EB;
@@ -241,44 +263,46 @@ bool erase_flash(int blockIndex) {
   return true;
 }
 
-const volatile void *flash_addr(int addr) {
-  if (addr < 0 || addr > FLASH_MAX_ADDR || addr < FLASH_MIN_ADDR)
-    return nullptr;
-  return (const volatile void*)((uint32_t)addr);
+bool get_flash_lock(int regionIndex) {
+  if (regionIndex < 0 || regionIndex > FLASH_BLOCK_COUNT)
+    return false;
+  return (NVMCTRL->RUNLOCK.reg & (1 << regionIndex));
 }
 
-bool get_flash_locked(const volatile void *flash, int bytes) {
-  if (!flash || (uint32_t)flash < FLASH_MIN_ADDR || (uint32_t)flash > FLASH_MAX_ADDR)
+bool set_flash_lock(int regionIndex, bool locked) {
+  if (regionIndex < 0 || regionIndex > FLASH_BLOCK_COUNT)
     return false;
- 
-  if (bytes <= 0) {
-    return (NVMCTRL->RUNLOCK.reg & (1 << (uint32_t)flash));
-  }
-  for (int i = 0; i <= ((uint32_t)flash + bytes - FLASH_MIN_ADDR) / FLASH_BLOCK_SIZE 
-    && i * FLASH_BLOCK_SIZE + (uint32_t)flash < FLASH_MAX_ADDR; i++) {
-
-    if (NVMCTRL->RUNLOCK.reg & (1 << i))
-      return true;
-  }
-  return false;
-}
-
-bool set_flash_lock(const volatile void *flash, bool locked) {
-  if (!flash || (uint32_t)flash < FLASH_MIN_ADDR 
-    || (uint32_t)flash > FLASH_MAX_ADDR)
-    return false;
-
-  bool currentLock = get_flash_locked(flash);
-  if ((currentLock && locked) || (!currentLock && !locked))
-    return true;
-
   _FRDY_
+  NVMCTRL->INTFLAG.bit.PROGE = 1;
   NVMCTRL->CTRLB.reg |=
       NVMCTRL_CTRLB_CMDEX_KEY
     | ((locked ? NVMCTRL_CTRLB_CMD_LR_Val : NVMCTRL_CTRLB_CMD_UR) 
         << NVMCTRL_CTRLB_CMD_Pos);
   _FDONE_
-  return get_flash_locked(flash) == locked;
+
+  if (NVMCTRL->INTFLAG.bit.PROGE) {
+    NVMCTRL->INTFLAG.bit.PROGE = 1;
+    return !locked;
+  }
+  return true;
+}
+
+int get_flash_page(uint32_t flashAddr) {
+  if (!validFAddr(flashAddr))
+    return 0;
+  return ((flashAddr - FLASH_START) / FLASH_PAGE_SIZE);
+}     
+
+int get_flash_block(uint32_t flashAddr) {
+  if (!validFAddr(flashAddr))
+    return 0;
+  return ((flashAddr - FLASH_START) / FLASH_BLOCK_SIZE);
+}
+
+int get_flash_region(uint32_t flashAddr) {
+  if (!validFAddr(flashAddr)) 
+    return false;
+  return ((flashAddr - FLASH_START) / FLASH_REGION_SIZE);
 }
 
 FLASH_ERROR get_flash_error() {
@@ -302,5 +326,197 @@ FLASH_ERROR get_flash_error() {
   }
   return FLASH_ERROR_NONE;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// SECTION -> FLASH VOID OVERLOADS
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+int write_flash_data(const volatile void *flashPtr, const volatile void *dataPtr, 
+  int writeCount, int dataAlignment, bool writePage) {
+  return write_flash_data((uint32_t)flashPtr, dataPtr, writeCount, dataAlignment, 
+    writePage);
+}
+
+int read_flash_data(const volatile void *flashPtr, void *destPtr, int copyCount,   
+  int dataAlignment) {
+  return read_flash_data((uint32_t)flashPtr, destPtr, copyCount, dataAlignment);
+}
+
+bool erase_flash(const volatile void *flashPtr) {
+  return erase_flash(get_flash_region(flashPtr));
+}
+
+bool get_flash_lock(const volatile void *flashPtr) {
+  return get_flash_lock((uint32_t)flashPtr);
+}
+
+bool set_flash_lock(const volatile void *flashPtr, bool locked) {
+  return set_flash_lock((uint32_t)flashPtr, locked);
+}
+
+int get_flash_page(const volatile void *flashPtr) {
+  return get_flash_page((uint32_t)flashPtr);
+}
+
+int get_flash_block(const volatile void *flashPtr) {
+  return get_flash_block((uint32_t)flashPtr);
+}
+
+int get_flash_page(const volatile void *flashPtr) {
+  return get_flash_page(reinterpret_cast<uint32_t>(flashPtr));
+}
+
+int get_flash_region(const volatile void *flashPtr) {
+  return get_flash_region((uint32_t)flashPtr);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// SECTION -> SEEPROM
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+static inline bool validSEEAddr(uint32_t seeAddr) {
+  return (seeAddr > SEEPROM_ADDR && seeAddr < get_seeprom_size());
+}
+
+bool init_seeprom(int minBytes, bool restartNow) { 
+  uint8_t blockCount = 0;
+  uint16_t pageCount = 0;
+
+  if (get_seeprom_init) {
+    return false;
+  }
+  for (int16_t i = 0; i < (sizeof(SEE_REF) / sizeof(SEE_REF[0])); i++) {
+    if (SEE_REF[i][0] >= minBytes) {
+      blockCount = SEE_REF[i][1];
+      pageCount = SEE_REF[i][2];
+      break;
+    }
+  }
+  if (!blockCount || pageCount) {
+    blockCount = SEE_DEFAULT_BLOCKS;
+    pageCount = SEE_DEFAULT_PAGES;
+  } 
+  memcpy(UP, (const void*)NVMCTRL_USER, FLASH_USER_PAGE_SIZE);
+  _FRDY_
+  NVMCTRL->CTRLA.bit.WMODE = NVMCTRL_CTRLA_WMODE_MAN_Val;
+  NVMCTRL->ADDR.bit.ADDR = NVMCTRL_USER;
+
+  NVMCTRL->CTRLB.reg = 
+      NVMCTRL_CTRLB_CMDEX_KEY
+    | NVMCTRL_CTRLB_CMD_EP;
+  _FDONE_
+  _FRDY_
+  NVMCTRL->CTRLB.reg = 
+      NVMCTRL_CTRLB_CMDEX_KEY
+    | NVMCTRL_CTRLB_CMD_EP;
+  _FDONE_
+
+  UP[NVMCTRL_FUSES_SEEPSZ_ADDR - NVMCTRL_USER] = 
+      (NVMCTRL_FUSES_SEESBLK(blockCount) 
+    | NVMCTRL_FUSES_SEEPSZ((uint8_t)(log2(pageCount) - 2)));
+
+  for (int i = 0; i < FLASH_USER_PAGE_SIZE; i += FLASH_QUAD_SIZE * 8) {
+    memcpy((void*)(NVMCTRL_USER + i), UP + i, FLASH_QUAD_SIZE * 8);
+    _FRDY_
+    NVMCTRL->ADDR.bit.ADDR = (uint32_t)(NVMCTRL_USER + i);
+    NVMCTRL->CTRLB.reg = 
+        NVMCTRL_CTRLB_CMDEX_KEY
+      | NVMCTRL_CTRLB_CMD_WQW; 
+    _FDONE_
+  }
+  if (restartNow) 
+    prog_restart();
+  return true;
+}
+
+bool write_seeprom(uint32_t seeAddr, void *data, int byteCount, bool blocking) {
+  if (!validSEEAddr(seeAddr) 
+    ||NVMCTRL->SEESTAT.bit.LOCK
+    ||NVMCTRL->INTFLAG.bit.SEESFULL
+    ||!blocking && NVMCTRL->SEESTAT.bit.BUSY
+    ||byteCount  >= SEE_MAX_WRITE
+    ||byteCount  <= 0
+    ||!data)
+    return false;
+
+  while(NVMCTRL->SEESTAT.bit.BUSY);
+  memcpy((void*)seeAddr, data, byteCount);
+
+  while(blocking && NVMCTRL->SEESTAT.bit.BUSY);
+
+  if (NVMCTRL->INTFLAG.bit.SEESOVF) {         // FIGURE OUT ERROR HANDLING...
+    NVMCTRL->INTFLAG.bit.SEESOVF = 0;
+    return false;
+  }
+  return true;
+}
+
+bool read_seeprom_data(uint32_t seeAddr, void *data, int byteCount, bool blocking) {
+  if (!validSEEAddr(seeAddr)
+    ||!blocking && NVMCTRL->SEESTAT.bit.BUSY
+    ||byteCount <= 0
+    ||byteCount >= SEE_MAX_READ
+    ||!data)
+    return false;
+
+  while(NVMCTRL->SEESTAT.bit.BUSY);
+  memcpy(data, (const void*)seeAddr, byteCount);
+  while(blocking && NVMCTRL->SEESTAT.bit.BUSY);
+  return true;
+}
+
+int get_seeprom_size() {
+  static int totalSize = 0;
+  if (get_seeprom_state == SEEPROM_NULL) {
+    return -1;
+  } else if (!totalSize) {
+    for (int i = 0; i < sizeof(SEE_REF) / sizeof(SEE_REF[0]); i++) {
+      if (SEE_REF[i][1] == NVMCTRL->SEESTAT.bit.SBLK
+        && SEE_REF[i][2] == NVMCTRL->SEESTAT.bit.PSZ) {
+        totalSize = SEE_REF[i][0];
+      }
+    }
+  }
+  return totalSize;
+}
+
+bool set_seeprom_lock(bool locked) {
+  if (get_seeprom_state() == SEEPROM_NULL)
+    return false;
+
+  NVMCTRL->CTRLB.reg |=
+      NVMCTRL_CTRLB_CMDEX_KEY
+    | ((locked ? NVMCTRL_CTRLB_CMD_USEE_Val : NVMCTRL_CTRLB_CMD_LSEE_Val)
+        << NVMCTRL_CTRLB_CMD_Pos);
+        
+  return true;
+}
+
+bool get_seeprom_locked() {
+  return NVMCTRL->SEESTAT.bit.LOCK;
+} 
+
+SEEPROM_STATE get_seeprom_state() {
+  if (NVMCTRL->SEESTAT.bit.SBLK && NVMCTRL->SEESTAT.bit.PSZ) {
+    return SEEPROM_NULL;
+  } else if (NVMCTRL->INTFLAG.bit.SEESOVF) {
+    return SEEPROM_OVERFLOW;
+  } else if (NVMCTRL->INTFLAG.bit.SEESFULL) {
+    return SEEPROM_FULL;
+  } else if (NVMCTRL->SEESTAT.bit.BUSY) {
+    return SEEPROM_BUSY;
+  } else if (NVMCTRL->SEESTAT.bit.SBLK && NVMCTRL->SEESTAT.bit.PSZ) {
+    return SEEPROM_INIT;
+  } else {
+    return SEEPROM_NULL;
+  }
+}
+
+
+
+
+
+
+
 
 
