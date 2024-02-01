@@ -374,17 +374,28 @@ int get_flash_region(const volatile void *flashPtr) {
 //// SECTION -> SEEPROM
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
+///////////////// HELPER FUNCTIONS ///////////////////
+
 static inline bool validSEEAddr(uint32_t seeAddr) {
   return (seeAddr > SEEPROM_ADDR && seeAddr < get_seeprom_size());
 }
+
+static inline bool validSEEStatus() {
+  return get_seeprom_status(SEEPROM_INIT) 
+    && !get_seeprom_status(SEEPROM_BUSY)
+    && !NVMCTRL->SEESTAT.bit.LOCK;
+}
+
+///////////////// CORE FUNCTIONS ///////////////////
 
 bool init_seeprom(int minBytes, bool restartNow) { 
   uint8_t blockCount = 0;
   uint16_t pageCount = 0;
 
-  if (get_seeprom_init) {
+  if (!NVMCTRL->PARAM.bit.SEE 
+    || get_seeprom_status(SEEPROM_INIT))
     return false;
-  }
+
   for (int16_t i = 0; i < (sizeof(SEE_REF) / sizeof(SEE_REF[0])); i++) {
     if (SEE_REF[i][0] >= minBytes) {
       blockCount = SEE_REF[i][1];
@@ -408,7 +419,7 @@ bool init_seeprom(int minBytes, bool restartNow) {
   _FRDY_
   NVMCTRL->CTRLB.reg = 
       NVMCTRL_CTRLB_CMDEX_KEY
-    | NVMCTRL_CTRLB_CMD_EP;
+    | NVMCTRL_CTRLB_CMD_PBC;
   _FDONE_
 
   UP[NVMCTRL_FUSES_SEEPSZ_ADDR - NVMCTRL_USER] = 
@@ -418,7 +429,6 @@ bool init_seeprom(int minBytes, bool restartNow) {
   for (int i = 0; i < FLASH_USER_PAGE_SIZE; i += FLASH_QUAD_SIZE * 8) {
     memcpy((void*)(NVMCTRL_USER + i), UP + i, FLASH_QUAD_SIZE * 8);
     _FRDY_
-    NVMCTRL->ADDR.bit.ADDR = (uint32_t)(NVMCTRL_USER + i);
     NVMCTRL->CTRLB.reg = 
         NVMCTRL_CTRLB_CMDEX_KEY
       | NVMCTRL_CTRLB_CMD_WQW; 
@@ -429,90 +439,201 @@ bool init_seeprom(int minBytes, bool restartNow) {
   return true;
 }
 
-bool write_seeprom(uint32_t seeAddr, void *data, int byteCount, bool blocking) {
-  if (!validSEEAddr(seeAddr) 
-    ||NVMCTRL->SEESTAT.bit.LOCK
-    ||NVMCTRL->INTFLAG.bit.SEESFULL
-    ||!blocking && NVMCTRL->SEESTAT.bit.BUSY
-    ||byteCount  >= SEE_MAX_WRITE
-    ||byteCount  <= 0
-    ||!data)
+bool exit_seeprom(bool restartNow) {
+  if (!get_seeprom_status(SEEPROM_INIT))
+    return false;
+  _FRDY_
+  NVMCTRL->CTRLB.reg = 
+      NVMCTRL_CTRLB_CMDEX_KEY
+    | NVMCTRL_CTRLB_CMD_LSEE;
+  _FDONE_
+
+  memcpy(UP, (const void*)NVMCTRL_USER, FLASH_USER_PAGE_SIZE);
+  
+  NVMCTRL->CTRLA.bit.WMODE = NVMCTRL_CTRLA_WMODE_MAN_Val;
+  NVMCTRL->ADDR.bit.ADDR = NVMCTRL_USER;
+
+  _FRDY_
+  NVMCTRL->CTRLB.reg = 
+      NVMCTRL_CTRLB_CMDEX_KEY
+    | NVMCTRL_CTRLB_CMD_EP;
+  _FDONE_
+  _FRDY_
+  NVMCTRL->CTRLB.reg = 
+      NVMCTRL_CTRLB_CMDEX_KEY
+    | NVMCTRL_CTRLB_CMD_PBC;
+  _FDONE_
+
+  UP[NVMCTRL_FUSES_SEEPSZ_ADDR - NVMCTRL_USER] = 
+      NVMCTRL_FUSES_SEESBLK(0)
+    | NVMCTRL_FUSES_SEEPSZ(0);
+  
+  for (int i = 0; i < FLASH_USER_PAGE_SIZE; i += FLASH_QUAD_SIZE) {
+    memcpy((void*)(NVMCTRL_USER + i), UP + i, FLASH_QUAD_SIZE * 8);
+    _FRDY_
+    NVMCTRL->CTRLB.reg = 
+        NVMCTRL_CTRLB_CMDEX_KEY
+      | NVMCTRL_CTRLB_CMD_WQW; 
+    _FDONE_
+  }
+  if (restartNow)
+    prog_restart();
+  return true;
+}
+
+bool update_seeprom_config() { 
+  if (!get_seeprom_status(SEEPROM_INIT)
+    ||get_seeprom_status(SEEPROM_BUSY))
     return false;
 
-  while(NVMCTRL->SEESTAT.bit.BUSY);
-  memcpy((void*)seeAddr, data, byteCount);
-
-  while(blocking && NVMCTRL->SEESTAT.bit.BUSY);
-
-  if (NVMCTRL->INTFLAG.bit.SEESOVF) {         // FIGURE OUT ERROR HANDLING...
-    NVMCTRL->INTFLAG.bit.SEESOVF = 0;
-    return false;
+  if (seeprom_config.locked == 0 || seeprom_config.locked == 1) {
+    _FRDY_
+    NVMCTRL->CTRLB.reg = 
+        NVMCTRL_CTRLB_CMDEX_KEY
+      | ((seeprom_config.locked ? NVMCTRL_CTRLB_CMD_LSEE_Val 
+          : NVMCTRL_CTRLB_CMD_USEE_Val) << NVMCTRL_CTRLB_CMD_Pos);
+    _FDONE_
+  }
+  if (seeprom_config.pageBuffer == 0 || seeprom_config.pageBuffer == 1) {
+    NVMCTRL->SEECFG.bit.APRDIS = (uint8_t)seeprom_config.pageBuffer;
+  }
+  if (seeprom_config.autoRealloc == 0 || seeprom_config.autoRealloc == 1) {
+    NVMCTRL->SEECFG.bit.WMODE = (uint8_t)seeprom_config.autoRealloc;
   }
   return true;
 }
 
-bool read_seeprom_data(uint32_t seeAddr, void *data, int byteCount, bool blocking) {
-  if (!validSEEAddr(seeAddr)
-    ||!blocking && NVMCTRL->SEESTAT.bit.BUSY
-    ||byteCount <= 0
-    ||byteCount >= SEE_MAX_READ
-    ||!data)
-    return false;
+///////////////// WRITE/READ FUNCTIONS ///////////////////
 
-  while(NVMCTRL->SEESTAT.bit.BUSY);
+int write_seeprom(uintptr_t seeAddr, void *data, size_t byteCount, bool blocking) {
+  if (!seeprom_config.bypassChecks) {
+    if (!validSEEAddr(seeAddr) 
+      ||!validSEEStatus()
+      ||get_seeprom_status(SEEPROM_FULL)
+      ||byteCount >= SEE_MAX_WRITE
+      ||!data)
+      return 0;
+  }
+  memcpy((void*)seeAddr, data, byteCount);
+  while(blocking && NVMCTRL->SEESTAT.bit.BUSY);
+
+  if (NVMCTRL->INTFLAG.bit.SEESOVF) {
+    NVMCTRL->INTFLAG.bit.SEESOVF = 1;
+    return -1;
+  }
+  return byteCount;
+}
+int write_seeprom_data(const volatile void *seePtr, void *data, size_t byteCount,
+  bool blocking = false) {
+  uintptr_t seeAddr = (uintptr_t)seePtr;
+  return write_seeprom_data(seeAddr, data, byteCount, blocking);
+}
+
+
+int read_seeprom_data(uintptr_t seeAddr, void *data, size_t byteCount, bool blocking) {
+  if (!seeprom_config.bypassChecks) {
+    if (!validSEEAddr(seeAddr)
+      ||!get_seeprom_status(SEEPROM_INIT)
+      ||get_seeprom_status(SEEPROM_BUSY)
+      ||byteCount >= SEE_MAX_READ
+      ||!data)
+      return 0;
+  }
   memcpy(data, (const void*)seeAddr, byteCount);
   while(blocking && NVMCTRL->SEESTAT.bit.BUSY);
+  return byteCount;
+}
+int read_seeprom_data(const volatile void *seePtr, void *data, size_t byteCount,
+  bool blocking = false) {
+  uintptr_t seeAddr = (uintptr_t)seePtr;
+  return read_seeprom_data(seeAddr, data, byteCount, blocking);   
+}
+
+
+///////////////// CMD FUNCTIONS ///////////////////
+
+bool switch_seeprom_sector() {
+  if (!validSEEStatus())
+    return false;
+
+  uint8_t secVal = NVMCTRL->SEESTAT.bit.ASEES ? NVMCTRL_CTRLB_CMD_ASEES0_Val 
+    : NVMCTRL_CTRLB_CMD_ASEES1_Val;
+  _FRDY_
+  NVMCTRL->CTRLB.reg = 
+      NVMCTRL_CTRLB_CMDEX_KEY
+    | (secVal << NVMCTRL_CTRLB_CMD_Pos);
+  _FDONE_
   return true;
 }
 
+bool realloc_seeprom() {
+  if (!validSEEStatus())
+    return false;
+  _FRDY_
+  NVMCTRL->CTRLB.reg = 
+      NVMCTRL_CTRLB_CMDEX_KEY
+    | NVMCTRL_CTRLB_CMD_SEERALOC;
+  _FDONE_
+  return true;
+} 
+
+bool flush_seeprom_buffer() {
+  if (!validSEEStatus()
+    || NVMCTRL->SEECFG.bit.WMODE != NVMCTRL_SEECFG_WMODE_BUFFERED_Val)
+    return false;
+  _FRDY_
+  NVMCTRL->CTRLB.reg = 
+      NVMCTRL_CTRLB_CMDEX_KEY
+    | NVMCTRL_CTRLB_CMD_SEEFLUSH;
+  _FDONE_
+  return true;
+}
+
+bool clear_seeprom_buffer() {
+  if (!validSEEStatus()) 
+    return false;
+  _FRDY_
+  NVMCTRL->CTRLB.reg =
+      NVMCTRL_CTRLB_CMDEX_KEY
+    | NVMCTRL_CTRLB_CMD_PBC;
+  _FDONE_
+  return true;
+}
+
+///////////////// GET FUNCTIONS ///////////////////
+
 int get_seeprom_size() {
-  static int totalSize = 0;
-  if (get_seeprom_state == SEEPROM_NULL) {
+  static int quickRef = -1;
+  if (!get_seeprom_status(SEEPROM_INIT))
     return -1;
-  } else if (!totalSize) {
+
+  if (quickRef == -1) {
     for (int i = 0; i < sizeof(SEE_REF) / sizeof(SEE_REF[0]); i++) {
       if (SEE_REF[i][1] == NVMCTRL->SEESTAT.bit.SBLK
         && SEE_REF[i][2] == NVMCTRL->SEESTAT.bit.PSZ) {
-        totalSize = SEE_REF[i][0];
+        quickRef = SEE_REF[i][0];
       }
     }
   }
-  return totalSize;
+  return quickRef;
 }
 
-bool set_seeprom_lock(bool locked) {
-  if (get_seeprom_state() == SEEPROM_NULL)
+bool get_seeprom_status(SEEPROM_STATUS status) {
+  if (get_seeprom_size <= 0)
     return false;
 
-  NVMCTRL->CTRLB.reg |=
-      NVMCTRL_CTRLB_CMDEX_KEY
-    | ((locked ? NVMCTRL_CTRLB_CMD_USEE_Val : NVMCTRL_CTRLB_CMD_LSEE_Val)
-        << NVMCTRL_CTRLB_CMD_Pos);
-        
-  return true;
-}
-
-bool get_seeprom_locked() {
-  return NVMCTRL->SEESTAT.bit.LOCK;
-} 
-
-SEEPROM_STATE get_seeprom_state() {
-  if (NVMCTRL->SEESTAT.bit.SBLK && NVMCTRL->SEESTAT.bit.PSZ) {
-    return SEEPROM_NULL;
-  } else if (NVMCTRL->INTFLAG.bit.SEESOVF) {
-    return SEEPROM_OVERFLOW;
-  } else if (NVMCTRL->INTFLAG.bit.SEESFULL) {
-    return SEEPROM_FULL;
-  } else if (NVMCTRL->SEESTAT.bit.BUSY) {
-    return SEEPROM_BUSY;
-  } else if (NVMCTRL->SEESTAT.bit.SBLK && NVMCTRL->SEESTAT.bit.PSZ) {
-    return SEEPROM_INIT;
-  } else {
-    return SEEPROM_NULL;
+  switch(status) {
+    case SEEPROM_INIT: 
+      return true;
+    case SEEPROM_BUSY: 
+      return NVMCTRL->SEESTAT.bit.BUSY || (NVMCTRL->INTFLAG.bit.SEEWRC);
+    case SEEPROM_PENDING:
+      return NVMCTRL->SEESTAT.bit.LOAD;
+    case SEEPROM_FULL:
+      return NVMCTRL->INTFLAG.bit.SEESFULL;
   }
+  return false;
 }
-
-
 
 
 

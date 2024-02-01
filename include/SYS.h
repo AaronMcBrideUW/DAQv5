@@ -100,35 +100,49 @@ int write_flash_value(uint32_t flashAddr, T value) {
 //// SECTION -> SMART EEPROM FUNCTIONS
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-enum SEEPROM_STATE {
-  SEEPROM_NULL,
+enum SEEPROM_STATUS {
   SEEPROM_INIT,
   SEEPROM_BUSY,
-  SEEPROM_FULL,
-  SEEPROM_OVERFLOW
+  SEEPROM_PENDING,
+  SEEPROM_FULL
 };
 
 struct {
-  bool enablePageBuffer = false;
+  bool autoRealloc = true;
+  bool pageBuffer = false;
+  bool locked = false;
+  bool bypassChecks = true;
 }seeprom_config;
 
-bool init_seeprom(int minBytes);
+bool init_seeprom(int minBytes, bool restartNow = true); // NEEDS CHECK
 
-bool write_seeprom_data(uint32_t seeAddr, void *data, int byteCount, bool blocking = false);
+bool update_seeprom_config(); // DONE
 
-bool read_seeprom_data(uint32_t seeAddr, void *dest, int byteCount, bool blocking = false);
+bool exit_seeprom(bool restartNow = true); 
 
-bool set_sector(int sectorNum, bool); // TO DO
 
-bool flush_sector() // TO DO
+int write_seeprom_data(uintptr_t seeAddr, void *data, size_t byteCount, 
+  bool blocking = false);
+int write_seeprom_data(const volatile void *seePtr, void *data, size_t byteCount,
+  bool blocking = false);
 
-int get_seeprom_size();
+int read_seeprom_data(uintptr_t seeAddr, void *dest, size_t byteCount, 
+  bool blocking = false);
+int write_seeprom_data(const volatile void *seePtr, void *data, size_t byteCount,
+  bool blocking = false);
 
-bool set_seeprom_lock(bool enabled);
+bool switch_seeprom_sector(); // DONE
 
-bool get_seeprom_locked();
+bool realloc_seeprom(); // DONE
 
-SEEPROM_STATE get_seeprom_state();
+bool flush_seeprom_buffer(); // DONE
+
+bool clear_seeprom_buffer(); //DONE
+
+
+int get_seeprom_size(); // DONE
+
+bool get_seeprom_status(); // DONE
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION -> PROG FUNCTIONS
