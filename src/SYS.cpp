@@ -6,23 +6,23 @@
 #define pgroup PORT->Group[pin.group]
 
 //// FLASH DEFS ////
-#define RAM_START           (HSRAM_ADDR + 4)
-#define RAM_END             (HSRAM_ADDR + HSRAM_SIZE)
-#define BKUP_RAM_START      BKUPRAM_ADDR
-#define BKUP_RAM_END        (BKUPRAM_ADDR + BKUPRAM_SIZE)
-#define FLASH_START         ((FLASH_PAGE_COUNT * FLASH_PAGE_SIZE) / 4)
-#define FLASH_END           FLASH_ADDR
-#define FLASH_REGION_SIZE   ((FLASH_SIZE / 32) * 1000)
-#define FLASH_BLOCK_SIZE    NVMCTRL_BLOCK_SIZE
-#define FLASH_PAGE_SIZE     (2 << (NVMCTRL->PARAM.bit.PSZ + 3))
-#define FLASH_QUAD_SIZE     (__SIZEOF_SHORT__ * 4)
-#define FLASH_DATA_SIZE     __SIZEOF_POINTER__
-#define FLASH_PAGE_COUNT    (NVMCTRL->PARAM.bit.NVMP)
-#define FLASH_MAX_ALIGN     FLASH_QUAD_SIZE
-#define FLASH_BLOCK_COUNT   (FLASH_PAGE_COUNT / FLASH_BLOCK_SIZE)
-#define _FRDY_              while(!NVMCTRL->STATUS.bit.READY);
-#define _FDONE_             while(!NVMCTRL->INTFLAG.bit.DONE); \
-                            NVMCTRL->INTFLAG.bit.DONE = 1;
+/*
+#define FLASH_START_           (FLASH_ADDR)
+#define FLASH_END_             (FLASH_START_ - FLASH_PAGE_COUNT_ * FLASH_PAGE_SIZE_)
+#define FLASH_LENGTH_          ((FLASH_END_ - FLASH_START_) / __SIZEOF_POINTER__)
+
+#define FLASH_DATA_SIZE_       (__SIZEOF_POINTER__)
+#define FLASH_QUAD_SIZE_       (__SIZEOF_SHORT__ * 4)
+#define FLASH_PAGE_SIZE_       (FLASH_PAGE_SIZE)
+#define FLASH_BLOCK_SIZE_      (NVMCTRL_BLOCK_SIZE)
+#define FLASH_REGION_SIZE_     ((FLASH_PAGE_SIZE * FLASH_NB_OF_PAGES * 1000) / 32)
+
+#define FLASH_REGION_COUNT_    (FLASH_TOTAL_SIZE_ / FLASH_REGION_SIZE_)
+#define FLASH_BLOCK_COUNT_     (FLASH_TOTAL_SIZE_ / FLASH_BLOCK_SIZE_)
+#define FLASH_QUAD_COUNT_      (FLASH_TOTAL_SIZE_ / FLASH_QUAD_SIZE_)
+#define FLASH_PAGE_COUNT_      (NVMCTRL->PARAM.bit.NVMP) 
+*/
+
 
 //// SEEPROM DEFS ////
 #define SEE_DEFAULT_BLOCKS 2
@@ -85,7 +85,7 @@ bool attach_pin(int pinID, int periphID) {
   return true;
 }
 
-bool drive_pin(int pinID, int pinState, bool pullPin) {
+bool set_pin(int pinID, int pinState, bool pullPin) {
   if (!validPin(pinID))
     return false;
 
@@ -125,128 +125,104 @@ int read_pin(int pinID) {
 //// SECTION -> FLASH FUNCTIONS
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-static inline bool validFAddr(uint32_t addr) {
-  return addr >= FLASH_ADDR && addr <= FLASH_END && !get_flash_lock(addr);
+typedef uint32_t flashMemAl;
+typedef uint64_t flashQuadAl;
+
+static volatile flashMemAl *flash_get_ptr(unsigned int flashIndex) {
+  if (flashIndex < FLASH_ADDR / sizeof(flashQuadAl)) 
+    return nullptr;
+  return (volatile flashMemAl*)(FLASH_ADDR + flashIndex * sizeof(flashQuadAl));
 }
 
-static inline bool validRAddr(uint32_t addr) {
-  return ((addr >= RAM_START && addr <= RAM_END) 
-    || (addr >= BKUP_RAM_START && addr <= BKUP_RAM_END)); 
-}
+static bool flash_check_addr(const volatile flashMemAl *ptr, const size_t bytes) {
+  return FLASH_ADDR + NVMCTRL->PARAM.bit.NVMP * (FLASH_PAGE_SIZE / sizeof(flashMemAl))
+    <= (uintptr_t)ptr + ceil((double)bytes / sizeof(flashQuadAl)) 
+      * (sizeof(flashQuadAl) / sizeof(flashMemAl));
+} 
 
-int write_flash_data(uint32_t flashAddr, uint32_t dataAddr, int dataCount, 
-  int dataAlignment, bool writePage) {
+static FLASH_ERROR flash_handle_errors(unsigned int *flashIndex = nullptr) {
 
-  if (!validFAddr(flashAddr) 
-    ||!validRAddr(dataAddr) 
-    ||dataCount <= 0 
-    ||dataAlignment <= 0 
-    ||dataAlignment > FLASH_MAX_ALIGN
-    ||NVMCTRL->STATUS.bit.SUSP)
-    return 0;
-
-
-  volatile uint32_t *flashMem = (volatile uint32_t*)flashAddr;  
-  int bytesWritten = 0;
-  bool commitPending = false;
-
-  _FRDY_
-  NVMCTRL->INTFLAG.bit.DONE = 1;
-  NVMCTRL->CTRLA.bit.WMODE = NVMCTRL_CTRLA_WMODE_MAN_Val;
-
-  NVMCTRL->CTRLB.reg = 
-      NVMCTRL_CTRLB_CMDEX_KEY 
-    | NVMCTRL_CTRLB_CMD_PBC;
-  _FDONE_
-
-  auto commitFlash = [&](void) -> void {
-    _FRDY_
-    NVMCTRL->CTRLB.reg |= 
-        NVMCTRL_CTRLB_CMDEX_KEY
-      | ((writePage ? NVMCTRL_CTRLB_CMD_WP_Val : NVMCTRL_CTRLB_CMD_WQW_Val) 
-          << NVMCTRL_CTRLB_CMD_Pos);
-    _FDONE_
-    _FRDY_
-    NVMCTRL->CTRLB.reg = 
-        NVMCTRL_CTRLB_CMDEX_KEY 
-      | NVMCTRL_CTRLB_CMD_PBC;
-    _FDONE_
-    bytesWritten += FLASH_QUAD_SIZE;
-    commitPending = false;
-  };
-
-  if (dataAlignment % FLASH_DATA_SIZE != 0) { // Regular mode
-    uint8_t *data8 = reinterpret_cast<uint8_t*>(dataAddr);
-    uint32_t byteBuff = 0;
-  
-    for (int i = 0; i < dataCount; i++) {
-
-      for (int j = 0; j < dataAlignment; j++) {
-        byteBuff |= (data8[(i * dataAlignment) + j] << ((j % FLASH_DATA_SIZE) * 8));
-        commitPending = true;
-
-        if (j % FLASH_DATA_SIZE == FLASH_DATA_SIZE - 1 || j == dataAlignment - 1) {
-          *flashMem = byteBuff;
-          flashMem++;
-          byteBuff = 0;
-        }
-      }
-      commitFlash();
-    }
-  } else { // Fast mode
-    uint32_t *data32 = reinterpret_cast<uint32_t*>(dataAddr); 
-    const int commitIndex = FLASH_QUAD_SIZE / FLASH_DATA_SIZE; 
-
-    for (int i = 0; i < dataCount * (dataAlignment / FLASH_DATA_SIZE); i++) {
-      flashMem[i] = data32[i];
-      commitPending = true;
-
-      if (i % commitIndex == commitIndex - 1) 
-        commitFlash();
-    }
-  }
-  if (commitPending) 
-    commitFlash();
-  return bytesWritten;
-}
-
-
-int read_flash_data(uint32_t flashAddr, uint32_t destAddr, int copyCount, 
-  int dataAlignment) {
-
-  if (!validFAddr(flashAddr) || !validRAddr(destAddr) || copyCount <= 0 
-    || dataAlignment <= 0 || dataAlignment > FLASH_MAX_ALIGN)
-    return 0;
-
-  int writtenBytes = 0;
-  if (dataAlignment % FLASH_DATA_SIZE == 0) {
-    copyCount *= dataAlignment;
-
-    if (flashAddr + copyCount > FLASH_END)
-      return 0;
-
-    NVMCTRL->CTRLA.bit.SUSPEN = 1;
-    memcpy((void*)destAddr, (const void*)flashAddr, copyCount);
-
-    NVMCTRL->CTRLA.bit.SUSPEN = 0;
-    writtenBytes = copyCount;
-
-  } else {
-    const int flashIter = (dataAlignment + FLASH_DATA_SIZE - 1) / FLASH_DATA_SIZE;
-    if (flashAddr + flashIter * copyCount > FLASH_END)
-      return 0;
-
-    writtenBytes = copyCount;
-    NVMCTRL->CTRLA.bit.SUSPEN = 1;
-
-    for (int i = 0; i < copyCount; i++) {
-      memcpy((void*)destAddr, (const void*)(flashAddr + i * flashIter), dataAlignment); /// CHECK THIS
-    }
-    NVMCTRL->CTRLA.bit.SUSPEN = 0;
-  }
-  return writtenBytes;
 };
 
+static void flash_cmd(unsigned int cmdVal) {
+  while(!NVMCTRL->STATUS.bit.READY);
+  NVMCTRL->CTRLB.reg = 
+      NVMCTRL_CTRLB_CMDEX_KEY
+    | (uint8_t)cmdVal << NVMCTRL_CTRLB_CMD_Pos; 
+  while(!NVMCTRL->STATUS.bit.READY);
+}
+
+FLASH_ERROR flash_update_config() {
+  NVMCTRL->CTRLA.bit.PRM = flash_config.lowPowerOnSleep 
+    ? NVMCTRL_CTRLA_PRM_FULLAUTO_Val : NVMCTRL_CTRLA_PRM_MANUAL_Val;
+
+  if (flash_config.flash_error_interrupt == nullptr) {
+    NVMCTRL->INTENCLR.bit.NVME;
+  } else {
+    NVMCTRL->INTENSET.bit.NVME;
+  }
+}
+
+FLASH_ERROR flash_write_data(unsigned int &flashIndex, const void *data, 
+  const size_t bytes) {
+
+  volatile flashMemAl *flashPtr = flash_get_ptr(flashIndex);
+  const uint8_t *byteData = (const uint8_t*)data;
+  const flashMemAl *alignedData = (const flashMemAl*)data;
+  const unsigned int flashWriteSize = flash_config.writePage ? FLASH_PAGE_SIZE / 8 
+    : sizeof(flashQuadAl);
+
+  if (!alignedData || !flashPtr)
+    return FLASH_ERROR_PARAM;
+  else if (flash_config.boundAddr && !flash_check_addr(flashPtr, bytes))
+    return FLASH_ERROR_ADDR;
+
+  NVMCTRL->CTRLA.reg |= NVMCTRL_CTRLA_WMODE_MAN;
+  if (NVMCTRL->STATUS.bit.LOAD) {
+    flash_cmd(NVMCTRL_CTRLB_CMD_PBC_Val);
+  }
+  for (int i = 0; i <= bytes / sizeof(flashMemAl); i++) {
+    if (bytes - i * sizeof(flashMemAl) > sizeof(flashMemAl)) {
+      flashPtr[i] = alignedData[i];
+    } else {
+      flashMemAl alignBuffer = 0;
+      for (int j = 0; j < i * sizeof(flashMemAl); j++) {
+        alignBuffer |= (byteData[j + i * sizeof(flashMemAl)] << j);
+      }
+      goto forceWrite;
+    }
+    if (i % flashWriteSize == flashWriteSize - 1) {
+      forceWrite:
+      flash_cmd(NVMCTRL_CTRLB_CMD_WQW_Val);
+    }
+  }
+  return flash_handle_errors(&flashIndex);
+}
+
+
+FLASH_ERROR flash_read_data(unsigned int &flashIndex, void *dest, 
+  const size_t bytes) {
+  if (!dest)
+    return FLASH_ERROR_ADDR;
+
+  const volatile flashMemAl *flashPtr = flash_get_ptr(flashIndex);
+  if (flash_config.boundAddr && !flash_check_addr(flashPtr, bytes))
+    return FLASH_ERROR_ADDR;
+
+  memcpy(dest, (const flashMemAl*)flashPtr, bytes);
+  return flash_handle_errors();
+}
+
+FLASH_ERROR erase_flash(const unsigned int flashIndex, const size_t indexCount) {
+  
+  const flashMemAl *flashPtr
+
+
+}
+
+
+
+/*
 bool erase_flash(int blockIndex) {
   uint32_t const blockAddr = FLASH_START + blockIndex * FLASH_BLOCK_SIZE;
   
@@ -303,71 +279,6 @@ int get_flash_region(uint32_t flashAddr) {
   if (!validFAddr(flashAddr)) 
     return false;
   return ((flashAddr - FLASH_START) / FLASH_REGION_SIZE);
-}
-
-FLASH_ERROR get_flash_error() {
-  if (NVMCTRL->INTFLAG.bit.NVME) {
-    NVMCTRL->INTFLAG.bit.NVME = 1;
-
-    if (NVMCTRL->INTFLAG.bit.ADDRE) {
-      NVMCTRL->INTFLAG.bit.ADDRE = 1;
-      return FLASH_ERROR_ADDR;
-
-    } else if (NVMCTRL->INTFLAG.bit.PROGE) {
-      NVMCTRL->INTFLAG.bit.PROGE = 1;
-      return FLASH_ERROR_PROGRAM;
-
-    } else if (NVMCTRL->INTFLAG.bit.LOCKE) {
-      NVMCTRL->INTFLAG.bit.LOCKE = 1;
-      return FLASH_ERROR_LOCK;
-    } else if (NVMCTRL->INTFLAG.bit.ECCDE) {
-
-    }
-  }
-  return FLASH_ERROR_NONE;
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-//// SECTION -> FLASH VOID OVERLOADS
-///////////////////////////////////////////////////////////////////////////////////////////////////
-
-int write_flash_data(const volatile void *flashPtr, const volatile void *dataPtr, 
-  int writeCount, int dataAlignment, bool writePage) {
-  return write_flash_data((uint32_t)flashPtr, dataPtr, writeCount, dataAlignment, 
-    writePage);
-}
-
-int read_flash_data(const volatile void *flashPtr, void *destPtr, int copyCount,   
-  int dataAlignment) {
-  return read_flash_data((uint32_t)flashPtr, destPtr, copyCount, dataAlignment);
-}
-
-bool erase_flash(const volatile void *flashPtr) {
-  return erase_flash(get_flash_region(flashPtr));
-}
-
-bool get_flash_lock(const volatile void *flashPtr) {
-  return get_flash_lock((uint32_t)flashPtr);
-}
-
-bool set_flash_lock(const volatile void *flashPtr, bool locked) {
-  return set_flash_lock((uint32_t)flashPtr, locked);
-}
-
-int get_flash_page(const volatile void *flashPtr) {
-  return get_flash_page((uint32_t)flashPtr);
-}
-
-int get_flash_block(const volatile void *flashPtr) {
-  return get_flash_block((uint32_t)flashPtr);
-}
-
-int get_flash_page(const volatile void *flashPtr) {
-  return get_flash_page(reinterpret_cast<uint32_t>(flashPtr));
-}
-
-int get_flash_region(const volatile void *flashPtr) {
-  return get_flash_region((uint32_t)flashPtr);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -635,7 +546,7 @@ bool get_seeprom_status(SEEPROM_STATUS status) {
   return false;
 }
 
-
+*/
 
 
 
