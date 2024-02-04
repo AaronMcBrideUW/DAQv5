@@ -4,9 +4,11 @@
 
 #pragma once
 #include "inttypes.h"
+#include <sys/types.h>
 #include "math.h"
 #include "string.h"
 #include "Board.h"
+#include <initializer_list>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION -> PIN FUNCTIONS
@@ -24,14 +26,12 @@ int read_pin(int pinID);
 //// SECTION -> FLASH MEM FUNCTIONS
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-#define FLASH_REGION_INDICIES 8
-
 struct {
   bool lowPowerOnSleep = false;
   bool lowPowerMode = false;
   bool writePage = false;
   bool boundAddr = true;
-  void (*flash_error_interrupt)(FLASH_ERROR) = nullptr;
+  void (*errorInterrupt)(FLASH_ERROR) = nullptr;
 }flash_config;
 
 enum FLASH_ERROR {
@@ -48,28 +48,35 @@ FLASH_ERROR flash_write_data(unsigned int &flashIndex, const void *data,
   const size_t bytes);
 
 FLASH_ERROR flash_read_data(unsigned int &flashIndex, void *dest, 
-  const size_t bytes);
+  const size_t bytes = sizeof(findex_t));
 
-FLASH_ERROR erase_flash(const unsigned int flashIndex, const size_t indexCount 
-  = FLASH_REGION_INDICIES);
+FLASH_ERROR flash_erase(unsigned int flashIndex, size_t indexCount, 
+  bool forceAligned = false);
 
-int get_flashAddr_page(uintptr_t flashAddr);
+FLASH_ERROR flash_clear();
 
-int get_flashAddr_block(uintptr_t flashAddr);
+bool flash_is_free(unsigned int flashIndex, size_t bytes);
 
-int get_flashAddr_region(uintptr_t flashAddr);
+int flash_find_free(unsigned int flashStartIndex, size_t bytes);
 
-FLASH_ERROR get_flash_error(); 
+unsigned int flash_query(size_t requiredBytes, unsigned int startFlashIndex = 0); // Not done
+
+FLASH_ERROR flash_set_region_lock(unsigned int regionIndex, bool locked);
+
+bool flash_get_region_locked(unsigned int regionIndex);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION -> SMART EEPROM FUNCTIONS
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-enum SEEPROM_STATUS {
-  SEEPROM_INIT,
-  SEEPROM_BUSY,
-  SEEPROM_PENDING,
-  SEEPROM_FULL
+enum SEEPROM_ERROR {
+  SEEPROM_ERROR_NONE,
+  SEEPROM_ERROR_INT,
+  SEEPROM_ERROR_STATE,
+  SEEPROM_ERROR_FULL,
+  SEEPROM_ERROR_PARAM,
+  SEEPROM_ERROR_LOCK,
+  SEEPROM_ERROR_ADDR
 };
 
 struct {
@@ -79,35 +86,35 @@ struct {
   bool checkAddr = true;
 }seeprom_config;
 
-bool init_seeprom(int minBytes, bool restartNow = true); // NEEDS CHECK
+SEEPROM_ERROR seeprom_init(int minBytes, bool restartNow = true); // NEEDS CHECK
 
-bool update_seeprom_config(); // DONE
+SEEPROM_ERROR seeprom_update_config(); // DONE
 
-bool exit_seeprom(bool restartNow = true); 
+SEEPROM_ERROR seeprom_exit(bool restartNow = true); 
 
-int write_seeprom_data(uintptr_t seeAddr, void *data, size_t byteCount, 
-  bool blocking = false);
+SEEPROM_ERROR seeprom_write_data(uint &seepromIndex, void *data, uint bytes,
+  bool blocking = true);
 
-int read_seeprom_data(uintptr_t seeAddr, void *dest, size_t byteCount, 
-  bool blocking = false);
+SEEPROM_ERROR seeprom_read_data(uint &seepromIndex, void *dest, uint bytes,
+  bool blocking = true);
 
-bool switch_seeprom_sector(); // DONE
+SEEPROM_ERROR seeprom_realloc(); 
 
-bool realloc_seeprom(); // DONE
+SEEPROM_ERROR seeprom_flush_buffer(); 
 
-bool flush_seeprom_buffer(); // DONE
+SEEPROM_ERROR seeprom_clear_buffer(); 
 
-bool clear_seeprom_buffer(); //DONE
+bool seeprom_get_init();
 
-int get_seeprom_size(); // DONE
+bool seeprom_get_full();
 
-bool get_seeprom_status(); // DONE
+bool seeprom_get_busy();
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION -> PROG FUNCTIONS
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-void prog_restart();
+void prog_restart() [[noReturn]];
 
 void NOCALL_prog_assert(bool statement, const int line, const char *func, const char *file);
 #define prog_assert(statement) NOCALL_prog_assert(statement, __LINE__, __FUNCTION__, __FILE__);
