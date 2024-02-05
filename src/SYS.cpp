@@ -1,173 +1,192 @@
 
 #include "SYS.h"
 
-//// MASK DEFS ////
-#define pmask (1 << pin.number)
-#define pgroup PORT->Group[pin.group]
+void NVMCTRL_0_Handler(void);
 
-//// FLASH DEFS ////
-/*
-#define FLASH_START_           (FLASH_ADDR)
-#define FLASH_END_             (FLASH_START_ - FLASH_PAGE_COUNT_ * FLASH_PAGE_SIZE_)
-#define FLASH_LENGTH_          ((FLASH_END_ - FLASH_START_) / __SIZEOF_POINTER__)
+static inline uintptr_t f_index_addr_(const unsigned int index);
+static inline bool f_valid_index_(unsigned int index);
+static inline void f_cmd_(uint8_t cmdVal);
+static inline FLASH_ERROR f_get_errors_();
 
-#define FLASH_DATA_SIZE_       (__SIZEOF_POINTER__)
-#define FLASH_QUAD_SIZE_       (__SIZEOF_SHORT__ * 4)
-#define FLASH_PAGE_SIZE_       (FLASH_PAGE_SIZE)
-#define FLASH_BLOCK_SIZE_      (NVMCTRL_BLOCK_SIZE)
-#define FLASH_REGION_SIZE_     ((FLASH_PAGE_SIZE * FLASH_NB_OF_PAGES * 1000) / 32)
-
-#define FLASH_REGION_COUNT_    (FLASH_TOTAL_SIZE_ / FLASH_REGION_SIZE_)
-#define FLASH_BLOCK_COUNT_     (FLASH_TOTAL_SIZE_ / FLASH_BLOCK_SIZE_)
-#define FLASH_QUAD_COUNT_      (FLASH_TOTAL_SIZE_ / FLASH_QUAD_SIZE_)
-#define FLASH_PAGE_COUNT_      (NVMCTRL->PARAM.bit.NVMP) 
-*/
-
-
-//// SEEPROM DEFS ////
-#define SEE_DEFAULT_BLOCKS 2
-#define SEE_DEFAULT_PAGES 64
-#define SEE_MAX_WRITE NVMCTRL_PAGE_SIZE
-#define SEE_MAX_READ NVMCTRL_PAGE_SIZE
-
-static uint8_t UP[FLASH_USER_PAGE_SIZE] = { 0 }; // User Page
-static const uint32_t SEE_REF[8][3] {
-  {512, 1, 4},
-  {1024, 1, 8},
-  {2048, 1, 16},
-  {4096, 1, 32},
-  {8192, 2, 64},
-  {16384, 3, 128},
-  {32768, 5, 256},
-  {65536, 10, 512}
-};
+static inline bool see_valid_index_(unsigned int seepromIndex, unsigned int bytes);
+static inline uintptr_t see_index_addr_(unsigned int seepromIndex);
+static inline SEEPROM_ERROR see_get_errors_();
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION -> PIN LOCAL
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-static uint8_t PIN_PULLSTATE[BOARD_PIN_COUNT] = { 0 };
-
-static bool validPin(const int &pinID) {
-  return pinID >= 0 && pinID < BOARD_PIN_COUNT;
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-//// SECTION -> PIN FUNCTIONS
-///////////////////////////////////////////////////////////////////////////////////////////////////
-
-bool reset_pin(int pinID) {
-  if (!validPin(pinID)) 
+bool pin_reset(unsigned int pinID) {
+  if (!pin_valid(pinID)) 
     return false;
 
   const PIN_DESCRIPTOR &pin = BOARD_PINS[pinID];
-
-  pgroup.DIRCLR.reg |= pmask;
-  pgroup.OUTCLR.reg |= pmask;
-  pgroup.PINCFG[pin.number].reg &= PORT_PINCFG_RESETVALUE;
-  pgroup.PMUX[pin.number].reg &= PORT_PMUX_RESETVALUE;
+  PORT->Group[pin.group].DIRCLR.reg |= (1 << pin.number);
+  PORT->Group[pin.group].OUTCLR.reg |= (1 << pin.number);
+  PORT->Group[pin.group].PINCFG[pin.number].reg &= PORT_PINCFG_RESETVALUE;
+  PORT->Group[pin.group].PMUX[pin.number].reg &= PORT_PMUX_RESETVALUE;
   return true;
 }
 
-bool attach_pin(int pinID, int periphID) {
-  if (!validPin(pinID))
+bool pin_attach(unsigned int pinID, unsigned int periphID) {
+  if (!pin_valid(pinID))
     return false;
 
   const PIN_DESCRIPTOR &pin = BOARD_PINS[pinID]; 
-
   if (periphID >= 0) {
-    pgroup.PMUX[pin.number].reg = (pin.number % 2) 
+    PORT->Group[pin.group].PMUX[pin.number].reg = (pin.number % 2) 
       ? PORT_PMUX_PMUXO((uint8_t)periphID) : PORT_PMUX_PMUXE((uint8_t)periphID);
-    pgroup.PINCFG[pin.number].bit.PMUXEN = 1;
+    PORT->Group[pin.group].PINCFG[pin.number].bit.PMUXEN = 1;
   } else {
-    pgroup.PINCFG[pin.number].bit.PMUXEN = 0;      
+    PORT->Group[pin.group].PINCFG[pin.number].bit.PMUXEN = 0;      
   }
   return true;
 }
 
-bool set_pin(int pinID, int pinState, bool pullPin) {
-  if (!validPin(pinID))
+bool pin_valid(const unsigned int pinID) {
+  return pinID < BOARD_PIN_COUNT;
+}
+
+bool pin_set_digital(unsigned int pinID, unsigned int pinState, bool pullPin) {
+  if (!pin_valid(pinID))
     return false;
 
   const PIN_DESCRIPTOR &pin = BOARD_PINS[pinID];
-  pgroup.PINCFG[pin.number].bit.PULLEN = (uint8_t)pullPin;
-  pgroup.PINCFG[pin.number].bit.INEN = 0;
-  
+  PORT->Group[pin.group].PINCFG[pin.number].bit.PULLEN = (uint8_t)pullPin;
+  PORT->Group[pin.group].PINCFG[pin.number].bit.INEN = 0;
+
   if (pinState) {
-    pgroup.PINCFG[pin.number].bit.DRVSTR = (uint8_t)(abs(pinState) >= 2);
-    if (pinState >= 1) {
-      pgroup.OUTSET.reg |= pmask;
-    } else {
-      pgroup.OUTCLR.reg |= pmask;
-    }
-    if (pullPin) {
-      pgroup.DIRCLR.reg |= pmask;
-    } else {
-      pgroup.DIRSET.reg |= pmask; 
-    }
+    PORT->Group[pin.group].PINCFG[pin.number].bit.DRVSTR = (uint8_t)(pinState >= 2);
+    if (pinState >= 1) 
+      PORT->Group[pin.group].OUTSET.reg |= (1 << pin.number);
+    else               
+      PORT->Group[pin.group].OUTCLR.reg |= (1 << pin.number);
+    if (pullPin) 
+      PORT->Group[pin.group].DIRCLR.reg |= (1 << pin.number);
+    else         
+      PORT->Group[pin.group].DIRSET.reg |= (1 << pin.number); 
   } else {
-    pgroup.DIRCLR.reg |= pmask;
-    pgroup.OUTCLR.reg |= pmask;
+    PORT->Group[pin.group].DIRCLR.reg |= (1 << pin.number);
+    PORT->Group[pin.group].OUTCLR.reg |= (1 << pin.number);
   }
   return true;
 }
 
-int read_pin(int pinID) {
-  if (!validPin(pinID)) 
+int pin_read_digital(unsigned int pinID) {
+  if (!pin_valid(pinID)) 
     return -1;
-
+    
   const PIN_DESCRIPTOR &pin = BOARD_PINS[pinID];
-  pgroup.PINCFG[pin.number].bit.INEN = 1;
-  return (int)(pgroup.IN.reg & pmask);
+  PORT->Group[pin.group].PINCFG[pin.number].bit.INEN = 1;
+  return (int)(PORT->Group[pin.group].IN.reg & (1 << pin.number));
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-//// SECTION -> FLASH FUNCTIONS
+//// SECTION: NVM MISC
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// @internal Typedefs for nvm
-typedef uint32_t fmem_t;                  // Type of flash memory
-typedef __uint128_t findex_t;             // Type of flash index
+typedef uint32_t fmem_t;                      /// Type for flash memory
+typedef struct { uint64_t hi, lo; }findex_t;  // Type for flash index   
 
-/// @internal Macros for nvm functions
-#define F_I2M(_index_)          ((_index_) * (sizeof(findex_t) / sizeof(fmem_t)))
-#define F_M2I(_mem_)            ((_mem_) * (sizeof(fmem_t) / sizeof(findex_t)))
-#define F_B2M(_byte_)           ((_byte_) == 0 ? 0 : ((_byte_) / sizeof(fmem_t)))
-#define F_B2I(_byte_)           ((_byte_) == 0 ? 0 : ((_byte_) / sizeof(findex_t)))
-#define ALIGN_DOWN(_val_, _al_) ((_val_) == 0 ? 0 : ((_val_) / (_al_)) * (_al_))
-#define ALIGN_UP(_val_, _al_)   ((_val_) == 0 ? 0 : (((_val_) + (_al_) - 1) / (_al_)) * (_al_))
+typedef uint8_t seemem_t;                     // Type for seeprom memory
+typedef uint8_t seeindex_t;                   // Type for seeprom index
+
+#define F_I2M(_index_)          ((_index_) * (sizeof(findex_t) / sizeof(fmem_t)))   // Flash index -> memory
+#define F_M2I(_mem_)            ((_mem_) * (sizeof(fmem_t) / sizeof(findex_t)))     // Flash memory -> index
+#define F_B2M(_byte_)           ((_byte_) == 0 ? 0 : ((_byte_) / sizeof(fmem_t)))   // Bytes -> flash memory
+#define F_B2I(_byte_)           ((_byte_) == 0 ? 0 : ((_byte_) / sizeof(findex_t))) // Bytes -> flash index
+#define ALIGN_DOWN(_val_, _al_) ((_val_) == 0 ? 0 : ((_val_) / (_al_)) * (_al_))    // Aligns value(1) DOWN to multiple(2)
+#define ALIGN_UP(_val_, _al_)   ((_val_) == 0 ? 0 : (((_val_) + (_al_) - 1) / (_al_)) * (_al_))  // Aligns value(1) UP to multiple(2)
 #define F_REGION_COUNT 32
+#define F_ERASEBUFF_SIZE NVMCTRL_BLOCK_SIZE 
 
-/// @internal Storage buffer for flash erase function  
-static findex_t eraseBuffer[F_B2I(NVMCTRL_BLOCK_SIZE) * 2] = { 0 };
+static const unsigned int f_pagesize_i = F_B2I(NVMCTRL_PAGE_SIZE);
+static const unsigned int f_erasebuff_addr = (NVMCTRL->PARAM.bit.NVMP * NVMCTRL_PAGE_SIZE
+  - F_ERASEBUFF_SIZE);
+
+static uint8_t userPageBuffer[FLASH_USER_PAGE_SIZE] = { 0 };         // For editing user page
+static const uint32_t SEE_REF[8][3] {  // Reference for seeprom size settings
+  {512,   1,  4},                      // [][0] = bytes, [][1] = pages, [][2] = blocks
+  {1024,  1,  8},                       
+  {2048,  1,  16},                      
+  {4096,  1,  32},
+  {8192,  2,  64},
+  {16384, 3,  128},
+  {32768, 5,  256},
+  {65536, 10, 512}
+};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
+//// SECTION: NVM PROPERTY DECLARATIONS
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
-static inline uintptr_t f_get_addr(const unsigned int flashIndex) {
-  return F_B2M(FLASH_ADDR) + F_I2M(flashIndex);
+/// flash property decl
+const unsigned int flash_properties_::total_size 
+  = NVMCTRL->PARAM.bit.NVMP * flash_properties_::page_size;
+const unsigned int flash_properties_::index_size 
+  = sizeof(findex_t);
+const unsigned int flash_properties_::page_size 
+  = FLASH_PAGE_SIZE;
+const unsigned int flash_properties_::region_size 
+  = FLASH_SIZE / F_REGION_COUNT; 
+const unsigned int flash_properties_::index_count 
+  = ceil((double)flash_properties_::total_size / flash_properties_::index_size);
+const unsigned int flash_properties_::region_count 
+  = ceil((double)flash_properties_::total_size / flash_properties_::region_size);
+const unsigned int flash_properties_::page_count 
+  = flash_properties_::total_size / flash_properties_::page_size;
+const unsigned int flash_properties_::default_align 
+  = sizeof(fmem_t);
+
+const unsigned int seeprom_properties_::max_index_count
+  = seeprom_properties_::max_total_size / sizeof(seeindex_t);
+const unsigned int seeprom_properties_::max_total_size
+  = SEE_REF[sizeof(SEE_REF)][2];
+const unsigned int seeprom_properties_::max_page_size 
+  = NVMCTRL_PAGE_SIZE;
+const unsigned int seeprom_properties_::index_size 
+  = sizeof(seeindex_t);
+const unsigned int seeprom_properties_::default_align
+  = sizeof(seemem_t);
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// SECTION: NVM LOCAL METHODS 
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// @brief Calls interrupt callbacks 
+void NVMCTRL_0_Handler(void) {
+  if (NVMCTRL->SEESTAT.bit.BUSY) {
+    if ((NVMCTRL->INTFLAG.bit.NVME || NVMCTRL->INTFLAG.bit.SEESFULL)
+        && seeprom_config.errorInterrupt) {
+      seeprom_config.errorInterrupt(see_get_errors_());
+    }
+  } else {
+    if (NVMCTRL->INTFLAG.bit.NVME && flash_config.errorInterrupt) {
+      flash_config.errorInterrupt(f_get_errors_()); 
+    }
+  } 
 }
 
-// Gets the address of a flash index
-static inline uintptr_t f_index_addr(unsigned int index) {
-  static const uintptr_t start = F_B2M(FLASH_ADDR);
-  return start + F_I2M(index);
+/// @internal Gets the address of a flash index
+static inline uintptr_t f_index_addr_(const unsigned int index) {
+  return FLASH_ADDR + index * sizeof(findex_t);
 }
 
-// Ensures index is within bounds of flash mem
-static inline bool f_valid_index(unsigned int index) {
-  return (flash_config.boundAddr && F_B2M(FLASH_ADDR + NVMCTRL->PARAM.bit.NVMP 
-    * FLASH_PAGE_SIZE));
+/// @internal Ensures index is within bounds of flash mem
+static inline bool f_valid_index_(unsigned int index) {
+  return !(flash_config.boundAddr && (index > F_B2I(f_erasebuff_addr)
+    || index < F_B2I(FLASH_ADDR)));
 }
-// Executes command in NVMC
-static inline void f_cmd(uint8_t cmdVal) {
+/// @internal Executes command in NVMC
+static inline void f_cmd_(uint8_t cmdVal) {
   while(!NVMCTRL->STATUS.bit.READY);
   NVMCTRL->CTRLB.reg = 
       NVMCTRL_CTRLB_CMDEX_KEY
     | cmdVal << NVMCTRL_CTRLB_CMD_Pos; 
 }
 
-// Gets & clears any error interrupt flags
-static inline FLASH_ERROR flash_get_error() {
+/// @internal Gets & clears any errors in flash memory
+static inline FLASH_ERROR f_get_errors_() {
   if (NVMCTRL->INTFLAG.bit.NVME) {
     decltype(NVMCTRL->INTFLAG.reg) flagReg = NVMCTRL->INTFLAG.reg;
     NVMCTRL->INTFLAG.bit.NVME = 1;
@@ -188,20 +207,51 @@ static inline FLASH_ERROR flash_get_error() {
   return FLASH_ERROR_NONE;
 }
 
-void NVMCTRL_0_Handler(void) {
-  if (NVMCTRL->INTFLAG.bit.NVME && flash_config.errorInterrupt) {
-    flash_config.errorInterrupt(flash_get_error()); 
+// Checks to ensure index is valid
+static inline bool see_valid_index_(unsigned int seepromIndex, unsigned int bytes) {
+  return !(seeprom_config.checkAddr && seepromIndex 
+    + ceil((double)bytes / sizeof(seeindex_t)) >= seeprom_get_size());
+}
+// Gets the address of a index
+static inline uintptr_t see_index_addr_(unsigned int seepromIndex) {
+  return (SEEPROM_ADDR / sizeof(seeindex_t)) + seepromIndex;
+}
+// Gets & clears any current errors
+static inline SEEPROM_ERROR see_get_errors_() {
+  SEEPROM_ERROR error = SEEPROM_ERROR_NONE;  
+  if (NVMCTRL->INTFLAG.bit.SEESFULL) {
+    NVMCTRL->INTFLAG.bit.SEESFULL = 1;
+    error = SEEPROM_ERROR_FULL;
   }
+  if (NVMCTRL->INTFLAG.bit.NVME) {
+    NVMCTRL->INTFLAG.bit.NVME = 1;
+    error = SEEPROM_ERROR_STATE;
+
+      if  (NVMCTRL->INTFLAG.bit.LOCKE) {
+        NVMCTRL->INTFLAG.bit.LOCKE = 1;
+        error = SEEPROM_ERROR_LOCK;
+      }
+      if (NVMCTRL->INTFLAG.bit.PROGE) {
+        NVMCTRL->INTFLAG.bit.PROGE = 1;
+        error = SEEPROM_ERROR_STATE;
+      } 
+      if (NVMCTRL->INTFLAG.bit.ADDRE) {
+        NVMCTRL->INTFLAG.bit.ADDRE = 1;
+        error = SEEPROM_ERROR_ADDR;                                                                                                                                                                             
+      } 
+  }
+  return error;
 }
 
-/////////////////////////////////////////////////////////////////////////////////////////////////// 
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// SECTION: FLASH FUNCTIONS
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
-// Syncs sys with config struct
 FLASH_ERROR flash_update_config() {
   NVMCTRL->CTRLA.bit.PRM = flash_config.lowPowerOnSleep 
     ? NVMCTRL_CTRLA_PRM_FULLAUTO_Val : NVMCTRL_CTRLA_PRM_MANUAL_Val;
 
-  f_cmd(flash_config.lowPowerMode ? NVMCTRL_CTRLB_CMD_SPRM_Val 
+  f_cmd_(flash_config.lowPowerMode ? NVMCTRL_CTRLB_CMD_SPRM_Val 
     : NVMCTRL_CTRLB_CMD_CPRM_Val);
 
   if (flash_config.errorInterrupt == nullptr) {
@@ -209,27 +259,25 @@ FLASH_ERROR flash_update_config() {
   } else {
     NVMCTRL->INTENSET.bit.NVME;
   }
+  return f_get_errors_();
 }
 
-// Writes data (quad-aligned)
-FLASH_ERROR flash_write_data(unsigned int &flashIndex, const void *data, 
-  const size_t bytes) {
+FLASH_ERROR flash_write_data(unsigned int &flashIndex, volatile const void *data, 
+  const unsigned int bytes) {
 
-  const fmem_t *alignedData = (const fmem_t*)data;
-  volatile fmem_t *flashPtr = (volatile fmem_t*)(F_B2M(FLASH_ADDR) 
-    + F_I2M(flashIndex));
+  volatile const fmem_t *alignedData = (volatile const fmem_t*)data;
+  volatile fmem_t *flashPtr = (volatile fmem_t*)f_index_addr_(flashIndex);
 
   if (!alignedData || !flashPtr) {
     return FLASH_ERROR_PARAM;
 
-  } else if (flash_config.boundAddr && !f_valid_index(flashIndex + F_B2I(bytes)) 
-    || !f_valid_index(flashIndex)) {
+  } else if (!f_valid_index_(flashIndex + F_B2I(bytes))) {
     return FLASH_ERROR_ADDR;
   }
 
   NVMCTRL->CTRLA.reg |= NVMCTRL_CTRLA_WMODE_MAN;  
   if (NVMCTRL->STATUS.bit.LOAD) {
-    f_cmd(NVMCTRL_CTRLB_CMD_PBC_Val);
+    f_cmd_(NVMCTRL_CTRLB_CMD_PBC_Val);
   }
   const unsigned int flashWriteSize = F_B2M(flash_config.writePage 
     ? FLASH_PAGE_SIZE : sizeof(findex_t));
@@ -239,7 +287,7 @@ FLASH_ERROR flash_write_data(unsigned int &flashIndex, const void *data,
   for (int i = 0; i < alignCount; i++) {      
     flashPtr[i] = alignedData[i];
     if (i % flashWriteSize == flashWriteSize - 1) {
-      f_cmd(flash_config.writePage ? NVMCTRL_CTRLB_CMD_WP_Val 
+      f_cmd_(flash_config.writePage ? NVMCTRL_CTRLB_CMD_WP_Val 
         : NVMCTRL_CTRLB_CMD_WQW_Val);
     }    
   }
@@ -254,84 +302,121 @@ FLASH_ERROR flash_write_data(unsigned int &flashIndex, const void *data,
     flashPtr[alignCount] = alignBuffer;
   }
   if (NVMCTRL->STATUS.bit.LOAD) {
-    f_cmd(flash_config.writePage ? NVMCTRL_CTRLB_CMD_WP_Val 
+    f_cmd_(flash_config.writePage ? NVMCTRL_CTRLB_CMD_WP_Val 
       : NVMCTRL_CTRLB_CMD_WQW_Val);
   }
   while(!NVMCTRL->STATUS.bit.READY);
 
-  FLASH_ERROR error = flash_get_error();
+  FLASH_ERROR error = f_get_errors_();
   if (error == FLASH_ERROR_NONE) {
     flashIndex += F_M2I(alignCount);
   }
   return error;
 }
 
-FLASH_ERROR flash_read_data(unsigned int &flashIndex, void *dest, 
-  const size_t bytes) {
-  if (!dest || !f_valid_index(F_B2I(ALIGN_UP(flashIndex + bytes, sizeof(fmem_t)))))
+FLASH_ERROR flash_copy_data(unsigned int &flashIndex, void *dest, 
+  const unsigned int bytes) {
+  if (!dest || !f_valid_index_(flashIndex + F_B2I(ALIGN_UP(bytes, sizeof(findex_t)))))
     return FLASH_ERROR_ADDR;
 
-  const void *flashPtr = (const void*)(F_I2M(flashIndex) 
-    + F_B2M(FLASH_ADDR));
-  
+  const void *flashPtr = (const void*)(flashIndex * sizeof(findex_t) + FLASH_ADDR);
   memcpy(dest, flashPtr, bytes);
   while(!NVMCTRL->STATUS.bit.READY);
 
-  FLASH_ERROR error = flash_get_error();
+  FLASH_ERROR error = f_get_errors_();
   if (error == FLASH_ERROR_NONE) {
-    flashIndex += F_B2I(bytes);
+    flashIndex += F_B2I(ALIGN_UP(bytes, sizeof(findex_t)));
   }
   return error;
 }
 
-FLASH_ERROR flash_erase(unsigned int flashIndex, size_t indexCount, 
+const volatile void *flash_read_data(unsigned int &flashIndex, unsigned int bytes) {
+  if (bytes != 0 || !f_valid_index_(flashIndex 
+    + F_B2I(ALIGN_UP(bytes, sizeof(findex_t)))))
+      return nullptr;
+
+  flashIndex = F_B2I(ALIGN_UP(bytes, sizeof(findex_t)));
+  return (const volatile void*)f_index_addr_(flashIndex);
+}
+
+/// NOTE: CONSIDER ADDING A LOCK CHECK TO THIS METHOD....
+
+FLASH_ERROR flash_erase(unsigned int flashIndex, unsigned int indexCount, 
   bool forceAligned) {
 
-  const unsigned int alStart = ALIGN_DOWN(flashIndex, 
-    F_B2I(NVMCTRL_BLOCK_SIZE));
-  const unsigned int alEnd = ALIGN_UP(flashIndex + indexCount, 
-    F_B2I(NVMCTRL_BLOCK_SIZE));
-
- if (flash_config.boundAddr && (!f_valid_index(alStart)
-    || !f_valid_index(alEnd)))
+  if (!f_valid_index_(flashIndex) || !f_valid_index_(flashIndex + indexCount))
       return FLASH_ERROR_ADDR; 
 
+  const unsigned int endIndex = flashIndex + indexCount;
+  const unsigned int alStart = ALIGN_DOWN(flashIndex, F_B2I(NVMCTRL_BLOCK_SIZE));
+  const unsigned int alEnd = ALIGN_UP(endIndex,F_B2I(NVMCTRL_BLOCK_SIZE));
+
+  bool rwStartFlag = false;
+  bool rwEndFlag = false;
+
+  auto eraseBlock = [&](long addr, int index) -> void {   
+    if (addr < 0 && index >= 0) {
+      NVMCTRL->ADDR.bit.ADDR = f_index_addr_(index);
+    } else if (addr < 0) {
+      NVMCTRL->ADDR.bit.ADDR = addr;
+    } else {
+      return;
+    }
+    f_cmd_(NVMCTRL_CTRLB_CMD_EB_Val);    
+  };
+
   if (!forceAligned) {
-    memcpy(eraseBuffer, (const void*)(f_index_addr(alStart)), 
-      (flashIndex - alStart) * sizeof(findex_t));
-
-    memcpy(&eraseBuffer[F_B2I(NVMCTRL_BLOCK_SIZE)], (const void*)(f_index_addr  
-      (flashIndex + indexCount)), (alEnd - flashIndex + indexCount) 
-        * sizeof(findex_t));
-  }
-  for (int i = alStart; i < alEnd; i += F_B2I(NVMCTRL_BLOCK_SIZE)) {
-    NVMCTRL->ADDR.bit.ADDR = FLASH_ADDR + i * NVMCTRL_BLOCK_SIZE;
-    f_cmd(NVMCTRL_CTRLB_CMD_EB_Val);
-  }
-  if (!forceAligned) { 
-    f_cmd(NVMCTRL_CTRLB_CMD_PBC_Val);
-    while(!NVMCTRL->STATUS.bit.READY);
-    volatile fmem_t* flashPtr = (volatile fmem_t*)f_index_addr(alStart);
-    
-    for (int i = F_I2M(alStart); i < F_I2M(flashIndex); i++) {
-      flashPtr[i] = eraseBuffer[i - F_I2M(alStart)];
-
-      if (i % F_B2M(sizeof(findex_t)) == F_B2M(sizeof(findex_t)) - 1) {
-        f_cmd(NVMCTRL_CTRLB_CMD_WQW_Val);
+    if (flashIndex % F_B2I(flash_properties.region_size) != 0) {
+      unsigned int index = (unsigned int)F_B2I(f_erasebuff_addr);
+      
+      if (!flash_write_data(index, (volatile void*)f_index_addr_(alStart), 
+        (flashIndex - alStart) * sizeof(findex_t)) == FLASH_ERROR_NONE) {
+        rwStartFlag = true;
+      } else {
+        goto bufferErrorExit;
       }
-    } 
-    for (int i = F_I2M(flashIndex + indexCount); i < F_I2M(alEnd); i++) {
-      flashPtr[i] = eraseBuffer[i - F_I2M(flashIndex + indexCount) 
-        + F_B2I(NVMCTRL_BLOCK_SIZE)];
+    }
+    if (endIndex % F_B2I(flash_properties.region_size) != 0) {
+      unsigned int index = (unsigned int)F_B2I(f_erasebuff_addr + indexCount);
 
-      if (i % F_B2M(sizeof(findex_t)) == F_B2M(sizeof(findex_t)) - 1) {
-        f_cmd(NVMCTRL_CTRLB_CMD_WQW_Val);
+      if (flash_write_data(index, (volatile void*)f_index_addr_(endIndex), 
+        (alEnd - endIndex) * sizeof(findex_t)) == FLASH_ERROR_NONE) {
+        rwEndFlag = true;
+      } else {
+        goto bufferErrorExit; 
       }
     }
   }
-  memset(eraseBuffer, 0, sizeof(eraseBuffer));
+  for (int i = flashIndex; i < alEnd; i += (flash_properties.region_size 
+    / sizeof(findex_t))) {
+    eraseBlock(-1, i);
+  }
+  if (!forceAligned) {
+    if (rwStartFlag) {
+      unsigned int writeIndex = alStart;
+      if(!flash_write_data(writeIndex, (volatile void*)f_erasebuff_addr, 
+        (flashIndex - alStart) * sizeof(findex_t)) != FLASH_ERROR_NONE) {
+        goto bufferErrorExit;
+      }
+    }
+    if (rwEndFlag) {
+      unsigned int writeIndex = endIndex;
+      if (!flash_write_data(writeIndex, (volatile void*)(f_erasebuff_addr 
+        + (flashIndex - alStart) * sizeof(findex_t)), (alEnd - endIndex) 
+        * sizeof(findex_t)) != FLASH_ERROR_NONE) {
+        goto bufferErrorExit;
+      }
+    }
+    eraseBlock(f_erasebuff_addr + 10, -1);
+  }
   while(!NVMCTRL->STATUS.bit.READY);
-  return flash_get_error();
+  return f_get_errors_();
+
+  bufferErrorExit: {
+    eraseBlock(f_erasebuff_addr + 10, -1);
+    while(!NVMCTRL->STATUS.bit.READY);
+    return FLASH_ERROR_PROG;
+  }
 }
 
 FLASH_ERROR flash_clear() {
@@ -340,10 +425,23 @@ FLASH_ERROR flash_clear() {
   
   for (int i = 0; i < blocks; i++) {
     NVMCTRL->ADDR.bit.ADDR = FLASH_ADDR + i * NVMCTRL_BLOCK_SIZE;
-    f_cmd(NVMCTRL_CTRLB_CMD_EB_Val);
+    f_cmd_(NVMCTRL_CTRLB_CMD_EB_Val);
   }
   while(!NVMCTRL->STATUS.bit.READY);
-  return flash_get_error();
+  return f_get_errors_();
+}
+
+FLASH_ERROR flash_set_region_lock(unsigned int regionIndex, bool locked) {
+  if (flash_config.boundAddr && regionIndex > 32)
+    return FLASH_ERROR_ADDR;    
+  else if (flash_get_region_locked(regionIndex) && !locked)
+    return FLASH_ERROR_LOCK;
+
+  NVMCTRL->ADDR.bit.ADDR = regionIndex * F_B2M(FLASH_ADDR + (FLASH_SIZE / 32));
+  f_cmd_(NVMCTRL_CTRLB_CMD_LR_Val);
+
+  while(!NVMCTRL->STATUS.bit.READY);
+  return f_get_errors_();
 }
 
 bool flash_get_region_locked(unsigned int regionIndex) {
@@ -351,28 +449,27 @@ bool flash_get_region_locked(unsigned int regionIndex) {
     + (FLASH_SIZE / 32)))));
 }
 
-bool flash_is_free(unsigned int flashIndex, size_t bytes) {
-  uint alignedBytes = ALIGN_UP(bytes, sizeof(findex_t));
-  uint8_t *flashPtr = (uint8_t*)f_get_addr(flashIndex);
+bool flash_is_free(unsigned int flashIndex, unsigned int bytes) {
+  unsigned int alignedBytes = ALIGN_UP(bytes, sizeof(findex_t));
+  uint8_t *flashPtr = (uint8_t*)f_index_addr_(flashIndex);
   
-  if (flash_config.boundAddr && !f_valid_index(flashIndex + alignedBytes)) 
+  if (!f_valid_index_(flashIndex + alignedBytes)) 
     return false;
   return memcmp(flashPtr, flashPtr + 1, bytes - 1); 
 }
 
-int flash_find_free(unsigned int flashStartIndex, size_t bytes) {
+int flash_find_free(unsigned int bytes, unsigned int flashStartIndex) {
   static const uintptr_t maxAddr = FLASH_ADDR + NVMCTRL->PARAM.bit.NVMP 
     * FLASH_PAGE_SIZE;   
   
-  const uint8_t *flashPtr = (const uint8_t*)f_get_addr(flashStartIndex);
-  const uint alignedBytes = ALIGN_UP(bytes, sizeof(findex_t));
+  const uint8_t *flashPtr = (const uint8_t*)f_index_addr_(flashStartIndex);
+  const unsigned int alignedBytes = ALIGN_UP(bytes, sizeof(findex_t));
   
-  if (flash_config.boundAddr && !f_valid_index(flashStartIndex 
-    + F_B2I(alignedBytes)))
+  if (!f_valid_index_(flashStartIndex + F_B2I(alignedBytes)))
       return -1;
 
-  uint found = 0; 
-  uint size = 1;  
+  unsigned int found = 0; 
+  unsigned int size = 1;  
   while((uintptr_t)flashPtr < maxAddr - 1) {
 
     if (memcmp(flashPtr, flashPtr + 1, size)) {
@@ -387,68 +484,237 @@ int flash_find_free(unsigned int flashStartIndex, size_t bytes) {
         return F_B2I((uintptr_t)flashPtr);
       }
     } else {
-      size = 1;
+      flashPtr = (const uint8_t*)ALIGN_UP((uintptr_t)flashPtr, sizeof(findex_t));
+      size = 1; 
       found = 0;
     }
   }
   return -1;
 }
 
-unsigned int flash_query(size_t requiredBytes) {
+int flash_query(const void* data, unsigned int bytes, unsigned int startIndex) {
+  if (!data || !bytes || (!f_valid_index_(startIndex)))
+    return -2;
+
   const volatile fmem_t *flashPtr = (const volatile fmem_t*)(F_B2M(FLASH_ADDR));
-}
+  const fmem_t *alData = (const fmem_t*)data; 
+  unsigned int run = 0;
+  unsigned int lastIndex = 0;
 
-FLASH_ERROR flash_set_region_lock(unsigned int regionIndex, bool locked) {
-  if (flash_config.boundAddr && regionIndex > 32)
-    return FLASH_ERROR_ADDR;    
-  else if (flash_get_region_locked(regionIndex) && !locked)
-    return FLASH_ERROR_LOCK;
+  while(run < bytes && lastIndex * sizeof(findex_t) <= NVMCTRL->PARAM.bit.NVMP 
+    * FLASH_PAGE_SIZE - bytes) {
 
-  NVMCTRL->ADDR.bit.ADDR = regionIndex * F_B2M(FLASH_ADDR + (FLASH_SIZE / 32));
-  f_cmd(NVMCTRL_CTRLB_CMD_LR_Val);
+    if (bytes - run > sizeof(fmem_t)) {
+      if (flashPtr == alData) {
+        flashPtr++;
+        alData++;
+        run += sizeof(fmem_t);
+      } else {
+        run = 0;
+        lastIndex += run;
+      }
+    } else if (bytes - run > 0) {
+      const uint8_t *byteData = (const uint8_t*)data;
+      const uint8_t *bytePtr = (const uint8_t*)flashPtr;
 
-  while(!NVMCTRL->STATUS.bit.READY);
-  return flash_get_error();
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-//// SECTION -> SEEPROM
-///////////////////////////////////////////////////////////////////////////////////////////////////
-
-typedef uint8_t sindex_t; 
-
-///////////////// HELPER FUNCTIONS ///////////////////
-static inline bool see_valid_index(uint seepromIndex, uint bytes) {
-  return (seepromIndex + bytes < seeprom_get_size());
-}
-
-static inline uintptr_t see_index_addr(uint seepromIndex) {
-  return SEEPROM_ADDR + seepromIndex;
-}
-
-enum SEEPROM_STATE {
-
-};
-
-static inline SEEPROM_ERROR see_(std::initializer_list<SEEPROM_STATE> ignoreStates) {
-  if (NVMCTRL->INTFLAG.bit.SEESOVF) {
-    return 
+      for (int j = 0; j < bytes - run; j++) {
+        if (bytePtr[j] != byteData[run + j]) {
+          run++;
+          flashPtr++;
+          lastIndex = run += sizeof(fmem_t);
+        }
+        return lastIndex;
+      }
+    } else {
+      return lastIndex;
+    }
   }
+  return -1;
+}
 
+unsigned int flash_index2region(unsigned int flashIndex) {
+  return (flashIndex * sizeof(findex_t)) / flash_properties.region_size;  
+}
 
-};
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// SECTION: SEEPROM FUNCTIONS
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
-///////////////// CORE FUNCTIONS ///////////////////
+SEEPROM_ERROR seeprom_update_config() { 
+  if (!seeprom_get_init())
+    return SEEPROM_ERROR_STATE;
+  if (NVMCTRL->SEESTAT.bit.RLOCK)
+    return SEEPROM_ERROR_LOCK;
 
-bool seeprom_get_init() { return NVMCTRL->SEESTAT.bit.PSZ && NVMCTRL->PARAM.bit.SEE; }
+  f_cmd_(seeprom_config.locked ? NVMCTRL_CTRLB_CMD_LSEE_Val 
+    : NVMCTRL_CTRLB_CMD_USEE_Val);
+  seeprom_config.locked = NVMCTRL->SEESTAT.bit.LOCK 
+    || NVMCTRL->SEESTAT.bit.RLOCK;
 
-bool seeprom_get_full() { return NVMCTRL->INTFLAG.bit.SEESFULL; }
+  NVMCTRL->SEECFG.bit.APRDIS = (uint8_t)seeprom_config.pageBuffer;
+  NVMCTRL->SEECFG.bit.WMODE = (uint8_t)seeprom_config.autoRealloc;
+  return see_get_errors_();
+}
 
-uint seeprom_get_size() {
-  static int qRef = -1;;
+SEEPROM_ERROR seeprom_init(int minBytes, bool restartNow) { 
+  unsigned int blockCount = 0;
+  unsigned int pageCount = 0;
+
+  if (!NVMCTRL->PARAM.bit.SEE)
+    return SEEPROM_ERROR_STATE;
+
+  else if (NVMCTRL->SEESTAT.bit.LOCK 
+    || NVMCTRL->SEESTAT.bit.RLOCK)
+      return SEEPROM_ERROR_LOCK;
+
+  for (int i = 0; i < (sizeof(SEE_REF) / sizeof(SEE_REF[0])); i++) {
+    if (SEE_REF[i][0] >= minBytes) {
+      blockCount = SEE_REF[i][1];
+      pageCount = SEE_REF[i][2];
+      break;
+    }
+  }
+  if (!blockCount || !pageCount)
+    return SEEPROM_ERROR_PARAM;
+
+  memcpy(userPageBuffer, (const void*)NVMCTRL_USER, FLASH_USER_PAGE_SIZE);
+
+  NVMCTRL->CTRLA.bit.WMODE = NVMCTRL_CTRLA_WMODE_MAN_Val;
+  NVMCTRL->ADDR.bit.ADDR = NVMCTRL_USER;
+  f_cmd_(NVMCTRL_CTRLB_CMD_EP_Val);
+  f_cmd_(NVMCTRL_CTRLB_CMD_PBC_Val);
+  
+  userPageBuffer[NVMCTRL_FUSES_SEEPSZ_ADDR - NVMCTRL_USER] = 
+      (NVMCTRL_FUSES_SEESBLK(blockCount) 
+    | NVMCTRL_FUSES_SEEPSZ((uint8_t)(log2(pageCount) - 2)));
+
+  for (int i = 0; i < FLASH_USER_PAGE_SIZE; i += sizeof(findex_t)) {
+    memcpy((void*)(NVMCTRL_USER + i), userPageBuffer + i, sizeof(findex_t));
+  }
+  f_cmd_(NVMCTRL_CTRLB_CMD_WP_Val);
+  while(!NVMCTRL->STATUS.bit.READY);
+
+  if (restartNow) {
+    if (memcmp((void*)NVMCTRL_USER, userPageBuffer, FLASH_USER_PAGE_SIZE)) {
+      prog_reset();
+    } else {
+      return SEEPROM_ERROR_STATE;
+    }
+  }
+  return see_get_errors_();
+}
+
+SEEPROM_ERROR seeprom_exit(bool restartNow) {
+  if (!seeprom_get_init())
+    return SEEPROM_ERROR_STATE;
+
+  memcpy(userPageBuffer, (const void*)NVMCTRL_USER, FLASH_USER_PAGE_SIZE);
+  
+  NVMCTRL->CTRLA.bit.WMODE = NVMCTRL_CTRLA_WMODE_MAN_Val;
+  NVMCTRL->ADDR.bit.ADDR = NVMCTRL_USER;
+  f_cmd_(NVMCTRL_CTRLB_CMD_EP_Val);
+  f_cmd_(NVMCTRL_CTRLB_CMD_PBC_Val);
+
+  userPageBuffer[NVMCTRL_FUSES_SEEPSZ_ADDR - NVMCTRL_USER] = 
+      NVMCTRL_FUSES_SEESBLK(0)
+    | NVMCTRL_FUSES_SEEPSZ(0);
+  
+  for (int i = 0; i < FLASH_USER_PAGE_SIZE; i += sizeof(findex_t)) {
+    memcpy((void*)(NVMCTRL_USER + i), userPageBuffer + i, sizeof(findex_t));
+  }
+  f_cmd_(NVMCTRL_CTRLB_CMD_WP_Val);
+  while(!NVMCTRL->STATUS.bit.READY);
+
+  if (restartNow) {
+    if (memcmp((void*)NVMCTRL_USER, userPageBuffer, FLASH_USER_PAGE_SIZE)) {
+      prog_reset();
+    } else {
+      SEEPROM_ERROR error = see_get_errors_();
+      return error == SEEPROM_ERROR_NONE ? SEEPROM_ERROR_STATE : error;
+    }
+  }
+  f_cmd_(NVMCTRL_CTRLB_CMD_LSEE_Val);
+  f_cmd_(NVMCTRL_CTRLB_CMD_LSEER_Val);
+  return see_get_errors_();
+}
+
+SEEPROM_ERROR seeprom_write_data(unsigned int &seepromIndex, void *data, unsigned int bytes,
+  bool blocking) {
+  if (!data)
+    return SEEPROM_ERROR_PARAM;
+  if (NVMCTRL->SEESTAT.bit.LOCK || NVMCTRL->SEESTAT.bit.RLOCK)
+    return SEEPROM_ERROR_LOCK;
+  if (seeprom_config.checkAddr && !see_valid_index_(seepromIndex, bytes))
+    return SEEPROM_ERROR_ADDR;
+
+  NVMCTRL->SEECFG.reg = 
+      ((bool)seeprom_config.autoRealloc << NVMCTRL_SEECFG_APRDIS_Pos)
+    | ((bool)seeprom_config.pageBuffer << NVMCTRL_SEECFG_WMODE_Pos);
+
+  while(NVMCTRL->SEESTAT.bit.BUSY);  
+  memcpy((void*)see_index_addr_(seepromIndex), data, bytes / sizeof(seemem_t));
+  while(blocking && NVMCTRL->SEESTAT.bit.BUSY);
+
+  seepromIndex += ceil((double)bytes / sizeof(seeindex_t));
+  return see_get_errors_();
+}
+
+SEEPROM_ERROR seeprom_copy_data(unsigned int &seepromIndex, void *data, unsigned int bytes,
+  bool blocking) {
+  if (!data)
+    return SEEPROM_ERROR_PARAM;
+  if (seeprom_config.checkAddr && !see_valid_index_(seepromIndex, bytes))
+    return SEEPROM_ERROR_ADDR;
+
+  while(NVMCTRL->SEESTAT.bit.BUSY);
+  memcpy(data, (const void*)seepromIndex, bytes);
+  while(blocking && NVMCTRL->SEESTAT.bit.BUSY);
+
+  seepromIndex += ceil((double)bytes / sizeof(seeindex_t));
+  return see_get_errors_();
+}
+
+const volatile void *seeprom_read_data(unsigned int &seepromIndex, const volatile void *ptr,
+  unsigned int bytes) {
+  if (seeprom_config.checkAddr && bytes != 0 
+    && !see_valid_index_(seepromIndex, bytes))
+    return nullptr;
+
+  seepromIndex += ceil((double)bytes / sizeof(seeindex_t));
+  return (const volatile void*)see_index_addr_(seepromIndex);
+}
+
+SEEPROM_ERROR seeprom_flush_buffer() {
+  if (!seeprom_get_init())
+    return SEEPROM_ERROR_STATE;
+  
+  f_cmd_(NVMCTRL_CTRLB_CMD_SEEFLUSH_Val);
+  while(!NVMCTRL->STATUS.bit.READY);
+  return see_get_errors_();
+}
+
+SEEPROM_ERROR seeprom_realloc() {
+  if (!seeprom_get_init())
+    return SEEPROM_ERROR_STATE;
+  
+  f_cmd_(NVMCTRL_CTRLB_CMD_SEERALOC_Val);
+  while(!NVMCTRL->STATUS.bit.READY);
+  return see_get_errors_();
+} 
+
+SEEPROM_ERROR seeprom_clear_buffer() {
   if (!seeprom_get_init()) 
     return SEEPROM_ERROR_STATE;
-    
+
+  f_cmd_(NVMCTRL_CTRLB_CMD_PBC_Val);
+  while(!NVMCTRL->STATUS.bit.READY);
+  return see_get_errors_();
+}
+
+unsigned int seeprom_get_size() {
+  static int qRef = -1;
+  if (!seeprom_get_init()) 
+    return SEEPROM_ERROR_STATE;
   if (qRef == -1) {
     for (int i = 0; i < sizeof(SEE_REF) / sizeof(SEE_REF[0]); i++) {
       if (SEE_REF[i][1] == NVMCTRL->SEESTAT.bit.SBLK
@@ -461,158 +727,84 @@ uint seeprom_get_size() {
   return qRef;
 }
 
-SEEPROM_ERROR seeprom_init(int minBytes, bool restartNow) { 
-  uint8_t blockCount = 0;
-  uint16_t pageCount = 0;
+bool seeprom_get_init() { 
+  return NVMCTRL->SEESTAT.bit.PSZ 
+    && NVMCTRL->PARAM.bit.SEE 
+    && !NVMCTRL->SEESTAT.bit.RLOCK; 
+}
 
-  if (!NVMCTRL->PARAM.bit.SEE)
-    return SEEPROM_ERROR_STATE;
+bool seeprom_get_full() { 
+  return NVMCTRL->INTFLAG.bit.SEESFULL; 
+}
 
-  else if (NVMCTRL->SEESTAT.bit.LOCK 
-    || NVMCTRL->SEESTAT.bit.RLOCK)
-      return SEEPROM_ERROR_LOCK;
+bool seeprom_get_busy() { 
+  return NVMCTRL->SEESTAT.bit.BUSY; 
+}
 
-  for (int16_t i = 0; i < (sizeof(SEE_REF) / sizeof(SEE_REF[0])); i++) {
-    if (SEE_REF[i][0] >= minBytes) {
-      blockCount = SEE_REF[i][1];
-      pageCount = SEE_REF[i][2];
-      break;
-    }
+bool seeprom_get_pending_data() { 
+  return NVMCTRL->SEESTAT.bit.LOAD; 
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// SECTION: PROGRAM FUNCTIONS
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// @brief Prog info variables initialized by linker script
+extern uint32_t __etext ;
+extern uint32_t __data_start__ ;
+extern uint32_t __data_end__ ;
+extern uint32_t __bss_start__ ;
+extern uint32_t __bss_end__ ;
+extern uint32_t __StackTop;
+
+/// @brief Stores address of each byte of serial num
+///           for a specific board
+#ifdef BOARD_FEATHER_M4_CAN
+  static const uintptr_t snAddrArray[] = 
+    {8413692, 8413692, 8413692, 8413692, 
+     8413200, 8413200, 8413200, 8413200,
+     8413204, 8413204, 8413204, 8413204, 
+     8413208, 8413208, 8413208, 8413208};
+#else
+  static const uintptr_t *snAddrArray = nullptr;
+#endif
+
+#define PROG_RESET_KEY 0xFA05U
+#define PROG_HARD_RESET_ENABLED true
+#define PROG_DEBUG_MODE false // Currently unused
+
+void prog_reset(bool hardReset) {
+  if (hardReset) {
+    __disable_irq();
+    __DSB();
+    SCB->AIRCR = (decltype(SCB->AIRCR)) 
+        (PROG_RESET_KEY << SCB_AIRCR_VECTKEY_Pos)
+      | (1 << SCB_AIRCR_SYSRESETREQ_Pos);
+    __DSB();
+  } else {
+      // TO DO
   }
-  if (!blockCount || !pageCount)
-    return SEEPROM_ERROR_PARAM;
+}
 
-  memcpy(UP, (const void*)NVMCTRL_USER, FLASH_USER_PAGE_SIZE);
-
-  NVMCTRL->CTRLA.bit.WMODE = NVMCTRL_CTRLA_WMODE_MAN_Val;
-  NVMCTRL->ADDR.bit.ADDR = NVMCTRL_USER;
-  f_cmd(NVMCTRL_CTRLB_CMD_EP_Val);
-  f_cmd(NVMCTRL_CTRLB_CMD_PBC_Val);
-  
-  UP[NVMCTRL_FUSES_SEEPSZ_ADDR - NVMCTRL_USER] = 
-      (NVMCTRL_FUSES_SEESBLK(blockCount) 
-    | NVMCTRL_FUSES_SEEPSZ((uint8_t)(log2(pageCount) - 2)));
-
-  for (int i = 0; i < FLASH_USER_PAGE_SIZE; i += sizeof(findex_t)) {
-    memcpy((void*)(NVMCTRL_USER + i), UP + i, sizeof(findex_t));
+PROG_RESET_REASON prog_get_reset_reason() {
+  switch(RSTC->RCAUSE.reg) {
+    case RSTC_RCAUSE_BACKUP: return BACKUP_RESET;
+    case RSTC_RCAUSE_SYST: return SYSTEM_REQ_RESET;
+    case RSTC_RCAUSE_WDT: return WATCHDOG_RESET;
+    case RSTC_RCAUSE_EXT: return EXTERNAL_RESET;
+    case RSTC_RCAUSE_NVM: return NVM_RESET;
+    case RSTC_RCAUSE_BODCORE: return BROWNOUT_RESET;
+    case RSTC_RCAUSE_BODVDD: return BROWNOUT_RESET;
+    case RSTC_RCAUSE_POR: return POWERON_RESET;
   }
-  f_cmd(NVMCTRL_CTRLB_CMD_WP_Val);
-  while(!NVMCTRL->STATUS.bit.READY);
+  return UNKNOWN_RESET;
+}
 
-  if (restartNow) {
-    if (memcmp((void*)NVMCTRL_USER, UP, FLASH_USER_PAGE_SIZE)) {
-      prog_restart();
-    } else {
-      return SEEPROM_ERROR_STATE;
-    }
+unsigned int prog_get_serial_number(uint8_t *resultArray) {
+  if (!snAddrArray || !resultArray)
+    return 0;
+  for (int i = 0; i < sizeof(snAddrArray); i++) {
+    resultArray[i] == *reinterpret_cast<uint8_t*>(snAddrArray[i]);
   }
-  return see_get_error();
-}
-
-SEEPROM_ERROR exit_seeprom(bool restartNow) {
-  if (!seeprom_get_init())
-    return SEEPROM_ERROR_STATE;
-
-  f_cmd(NVMCTRL_CTRLB_CMD_LSEE_Val);
-  memcpy(UP, (const void*)NVMCTRL_USER, FLASH_USER_PAGE_SIZE);
-  
-  NVMCTRL->CTRLA.bit.WMODE = NVMCTRL_CTRLA_WMODE_MAN_Val;
-  NVMCTRL->ADDR.bit.ADDR = NVMCTRL_USER;
-  f_cmd(NVMCTRL_CTRLB_CMD_EP_Val);
-  f_cmd(NVMCTRL_CTRLB_CMD_PBC_Val);
-
-  UP[NVMCTRL_FUSES_SEEPSZ_ADDR - NVMCTRL_USER] = 
-      NVMCTRL_FUSES_SEESBLK(0)
-    | NVMCTRL_FUSES_SEEPSZ(0);
-  
-  for (int i = 0; i < FLASH_USER_PAGE_SIZE; i += sizeof(findex_t)) {
-    memcpy((void*)(NVMCTRL_USER + i), UP + i, sizeof(findex_t));
-  }
-  f_cmd(NVMCTRL_CTRLB_CMD_WP_Val);
-  while(!NVMCTRL->STATUS.bit.READY);
-
-  if (restartNow) {
-    if (memcmp((void*)NVMCTRL_USER, UP, FLASH_USER_PAGE_SIZE)) {
-      prog_restart();
-    } else {
-      SEEPROM_ERROR error = see_get_error();
-      return error == SEEPROM_ERROR_NONE ? SEEPROM_ERROR_STATE : error;
-    }
-  }
-  f_cmd(NVMCTRL_CTRLB_CMD_LSEER_Val);
-  return see_get_error();
-}
-
-SEEPROM_ERROR update_seeprom_config() { 
-  if (!get_seeprom_init())
-    return SEEPROM_ERROR_STATE;
-  if (NVMCTRL->SEESTAT.bit.RLOCK)
-    return SEEPROM_ERROR_LOCK;
-
-  f_cmd(seeprom_config.locked ? NVMCTRL_CTRLB_CMD_LSEE_Val 
-    : NVMCTRL_CTRLB_CMD_USEE_Val);
-  NVMCTRL->SEECFG.bit.APRDIS = (uint8_t)seeprom_config.pageBuffer;
-  NVMCTRL->SEECFG.bit.WMODE = (uint8_t)seeprom_config.autoRealloc;
-  return see_get_error();
-}
-
-SEEPROM_ERROR seeprom_write_data(uint &seepromIndex, void *data, uint bytes,
-  bool blocking) {
-  if (!data)
-    return SEEPROM_ERROR_PARAM;
-  if (NVMCTRL->SEESTAT.bit.LOCK || NVMCTRL->SEESTAT.bit.RLOCK)
-    return SEEPROM_ERROR_LOCK;
-
-  NVMCTRL->SEECFG.reg = 
-      ((bool)seeprom_config.autoRealloc << NVMCTRL_SEECFG_APRDIS_Pos)
-    | ((bool)seeprom_config.pageBuffer << NVMCTRL_SEECFG_WMODE_Pos);
-
-  while(NVMCTRL->SEESTAT.bit.BUSY);  
-  memcpy((void*)see_index_addr(seepromIndex), data, bytes);
-  while(blocking && NVMCTRL->SEESTAT.bit.BUSY);
-
-  seepromIndex += bytes;
-  return see_get_error();
-}
-
-SEEPROM_ERROR seeprom_read_data(uint &seepromIndex, void *data, uint bytes,
-  bool blocking) {
-  if (!data)
-    return SEEPROM_ERROR_PARAM;
-  if (NVMCTRL->SEESTAT.bit.LOCK || NVMCTRL->SEESTAT.bit.RLOCK)
-    return SEEPROM_ERROR_LOCK;
-
-  while(NVMCTRL->SEESTAT.bit.BUSY);
-  memcpy(data, (const void*)seepromIndex, bytes);
-  while(blocking && NVMCTRL->SEESTAT.bit.BUSY);
-
-  seepromIndex += bytes;
-  return see_get_error();
-}
-
-SEEPROM_ERROR seeprom_flush_buffer() {
-  if (!seeprom_get_init())
-    return SEEPROM_ERROR_STATE;
-  
-  f_cmd(NVMCTRL_CTRLB_CMD_SEEFLUSH_Val);
-  while(!NVMCTRL->STATUS.bit.READY);
-  return see_get_error();
-}
-
-SEEPROM_ERROR seeprom_realloc() {
-  if (!seeprom_get_init())
-    return SEEPROM_ERROR_STATE;
-  
-  f_cmd(NVMCTRL_CTRLB_CMD_SEERALOC_Val);
-  while(!NVMCTRL->STATUS.bit.READY);
-  return see_get_error();
-} 
-
-SEEPROM_ERROR seeprom_clear_buffer() {
-  if (!seeprom_get_init()) 
-    return SEEPROM_ERROR_STATE;
-
-  f_cmd(NVMCTRL_CTRLB_CMD_PBC_Val);
-  while(!NVMCTRL->STATUS.bit.READY);
-  return see_get_error();
+  return sizeof(snAddrArray);
 }

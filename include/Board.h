@@ -30,13 +30,13 @@ struct PERIPH_DESCRIPTOR {
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// @def Board identifier
-#define BOARD_ID FEATHER_M4_CAN
+#define BOARD_FEATHER_M4_CAN
 
 extern const PERIPH_DESCRIPTOR BOARD_PERIPHS[] = {
-  {1}
-  {2}
-  {3}
-  {4}
+  {1},
+  {2},
+  {3},
+  {4},
   {}
 };
  

@@ -15,7 +15,7 @@
 //// XOSC32K REFERENCES ////
 #define XOSC32K_EN1K_FREQ 1024;
 #define XOSC32K_EN32K_FREQ 32746
-const uint8_t SUTIME_REF[] = {62, 125, 500, 10000, 20000, 40000, 80000};
+const int SUTIME_REF[] = {62, 125, 500, 10000, 20000, 40000, 80000};
 
 //// DFLL REFERENCES ////
 #define DFLL_BASE_FREQ 48000000
@@ -78,7 +78,8 @@ int get_cpu_freq(bool highSpeedDomain) {
 }
 
 bool set_rtc_src(RTC_SOURCE source) {
-  OSC32KCTRL->RTCCTRL.bit.RTCSEL = (uint8_t)source;
+  // TO DO
+  return false;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -251,7 +252,7 @@ int get_osculp_freq() {
 }
 
 OSC_STATUS get_osculp_status() {
-  return get_osculp_freq != 0 ? OSC_STATUS_ENABLED_LOCKED : OSC_STATUS_DISABLED;
+  return get_osculp_freq() <= 0 ? OSC_STATUS_ENABLED_LOCKED : OSC_STATUS_DISABLED;
 }
 
 
@@ -268,9 +269,10 @@ bool set_xosc32k(bool enabled, XOSC32K_FREQ freqSel, int startupTime,
   if (enabled) { 
     uint8_t suSel = 0; 
     int suPrev = 0;
-    for (int i = 0; i < sizeof(SUTIME_REF) / sizeof(SUTIME_REF); i++) { 
-      if (abs(SUTIME_REF[i] - startupTime) < suPrev) {
-        suPrev = abs(SUTIME_REF[i] - startupTime);
+    for (int i = 0; i < sizeof(SUTIME_REF) / sizeof(SUTIME_REF[0]); i++) { 
+      int result = SUTIME_REF[i] - startupTime;
+      if (result < suPrev) {
+        suPrev = result;
         suSel = i;
       }
     }
@@ -340,9 +342,9 @@ bool set_dfll(bool enabled, int freq, bool closedLoopMode, int gclkNum, bool wai
               return false;
             refSel = DFLL_BACKUP_REF;
           }
+          GCLK->GENCTRL[gclkNum].bit.DIVSEL = 0;
           GCLK->GENCTRL[gclkNum].reg = 
               (GCLK_GENCTRL_GENEN)
-            | (0 << GCLK_GENCTRL_DIVSEL_Pos)
             | (GCLK_GENCTRL_SRC(refSel));
           while(GCLK->SYNCBUSY.reg && (1 << (GCLK_SYNCBUSY_GENCTRL0_Pos + refSel)));
         } 
@@ -440,14 +442,9 @@ bool set_dpll(int dpllNum, bool enabled, DPLL_SRC source, int freq, bool waitFor
     int srcFreq = 0;
     if (source == DPLL_SRC_NULL || freq < DPLL_FREQ_MIN || freq > DPLL_FREQ_MAX) 
       return false;
-
+      
     if (source == DPLL_SRC_GCLK0) {
-      if (!GCLK->GENCTRL[OSCCTRL_GCLK_ID_FDPLL0 + dpllNum].bit.GENEN) 
-        return false;
-
-      int gclkSrc = GCLK->GENCTRL[OSCCTRL_GCLK_ID_FDPLL0].bit.SRC;
       srcFreq = get_gclk_freq(OSCCTRL_GCLK_ID_FDPLL0 + dpllNum);
-
     } else {
       srcFreq = get_xosc32k_freq();
     }

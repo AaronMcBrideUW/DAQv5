@@ -41,10 +41,12 @@ bool set_cpu_freq(int freq, bool highSpeedDomain);
 int get_cpu_freq(bool highSpeedDomain);
 
 
+
+/// @warning **** NOT IMPLEMENTED ****
 /// @brief Sets the source for the real time clock
-/// @param source The source oscillator (ENUM - RTC_...) that the real time clock will use
+/// @param source The source oscillator (ENUM - RTC_...) that the real time clock will
 /// @return True if the rtc source was set, false otherwise.
-bool set_rtc_src(RTC_SOURCE source);
+bool set_rtc_src(RTC_SOURCE source);                                                                              // TO DO
 
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
