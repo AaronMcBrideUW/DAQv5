@@ -4,12 +4,11 @@
 
 #include <DMA.h>
 
-
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION: DMA MISC
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-volatile DmacDescriptor wbDescArray[DMAC_CH_NUM] __attribute__ ((aligned (16)));
+DmacDescriptor wbDescArray[DMAC_CH_NUM] __attribute__ ((aligned (16)));
 DmacDescriptor baseDescArray[DMAC_CH_NUM] __attribute__ ((aligned (16))); 
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -19,7 +18,7 @@ DmacDescriptor baseDescArray[DMAC_CH_NUM] __attribute__ ((aligned (16)));
 #define DMA_IRQ_COUNT 5
 #define DMA_PRILVL_COUNT 4
 
-DMA_ERROR dma_get_errors_(int channelNum) {
+static DMA_ERROR dma_get_errors_(int channelNum) {
 
   if (channelNum <= 0) {
 
@@ -30,9 +29,12 @@ DMA_ERROR dma_get_errors_(int channelNum) {
   }
 }
 
+static inline bool dma_desc_valid(DmacDescriptor &desc) {
+  return !(!desc.BTCNT.bit.BTCNT || !desc.DESCADDR.bit.DESCADDR
+    || !desc.SRCADDR.bit.SRCADDR);
+}
 
-
-DMA_ERROR dma_update_config() {
+DMA_ERROR dmactrl_update_config() {
   auto changePriorityCtrl = [](uint8_t val, unsigned int startPos, unsigned int step) 
     -> void {
     for (int i = 0; i < DMA_PRILVL_COUNT; i++) {
@@ -45,30 +47,30 @@ DMA_ERROR dma_update_config() {
     }
   };
   for (int i = 0; i < DMA_IRQ_COUNT; i++) {
-    NVIC_SetPriority((IRQn_Type)(DMAC_0_IRQn + i), dma_config.irqPriority);
+    NVIC_SetPriority((IRQn_Type)(DMAC_0_IRQn + i), dmactrl_config.irqPriority);
   }
-  if (DMAC->PRICTRL0.bit.RRLVLEN0 != (uint8_t)dma_config.roundRobinMode) {
-    changePriorityCtrl((uint8_t)dma_config.roundRobinMode, DMAC_PRICTRL0_RRLVLEN0_Pos,
+  if (DMAC->PRICTRL0.bit.RRLVLEN0 != (uint8_t)dmactrl_config.roundRobinMode) {
+    changePriorityCtrl((uint8_t)dmactrl_config.roundRobinMode, DMAC_PRICTRL0_RRLVLEN0_Pos,
       (DMAC_PRICTRL0_LVLPRI1_Pos - DMAC_PRICTRL0_LVLPRI0_Pos));
   }
-  if (DMAC->PRICTRL0.bit.QOS0 != (uint8_t)dma_config.serviceQuality) {
-    changePriorityCtrl((uint8_t)dma_config.serviceQuality, DMAC_PRICTRL0_QOS0_Pos,
+  if (DMAC->PRICTRL0.bit.QOS0 != (uint8_t)dmactrl_config.serviceQuality) {
+    changePriorityCtrl((uint8_t)dmactrl_config.serviceQuality, DMAC_PRICTRL0_QOS0_Pos,
       (DMAC_PRICTRL0_QOS1_Pos - DMAC_PRICTRL0_QOS0_Pos));
   }
 }
 
-DMA_ERROR dma_init(unsigned int channelNumber) {
+DMA_ERROR dmactrl_init(unsigned int channelNumber) {
   if (channelNumber > DMAC_CH_NUM)
     return DMA_ERROR_PARAM;
 
-  dma_exit();
+  dmactrl_exit();
 
   for (int i = 0; i < DMA_IRQ_COUNT; i++) {
     NVIC_EnableIRQ((IRQn_Type)(DMAC_0_IRQn + i));
   }
   DMAC->BASEADDR.reg = (uintptr_t)baseDescArray;
   DMAC->WRBADDR.reg = (uintptr_t)wbDescArray;
-  dma_update_config();
+  dmactrl_update_config();
 
   DMAC->CTRL.reg = 
       DMAC_CTRL_LVLEN_Msk
@@ -84,7 +86,7 @@ DMA_ERROR dma_exit() {
   return dma_get_errors_(-1);
 }
 
-DMA_ERROR dma_enable_channel(unsigned int channelNum, unsigned int priorityLvl, 
+DMA_ERROR dmactrl_enable_channel(unsigned int channelNum, unsigned int priorityLvl, 
   bool runInStandby) {
   if (channelNum > DMAC_CH_NUM)
     return DMA_ERROR_PARAM;
@@ -97,16 +99,46 @@ DMA_ERROR dma_enable_channel(unsigned int channelNum, unsigned int priorityLvl,
   return dma_get_errors_(channelNum);
 }
 
-DMA_ERROR dma_set_channel_descriptor(ChannelDescriptor descriptor) {
+#define DMA_MAX_BURSTLEN 7
 
-
+DMA_ERROR dmach_update_config(unsigned int channelNum) {
+  if (channelNum > DMAC_CH_NUM) 
+    return DMA_ERROR_PARAM;
+  DMAC->Channel[channelNum].CHCTRLA.reg = (decltype(DMAC->Channel[channelNum].CHCTRLA.reg))
+      (((uint8_t)dmach_config[channelNum].transferThreshold << DMAC_CHCTRLA_THRESHOLD_Pos)
+    | ((uint8_t)dmach_config[channelNum].burstLength << DMAC_CHCTRLA_BURSTLEN_Pos)
+    | ((uint8_t)dmach_config[channelNum].triggerAction << DMAC_CHCTRLA_TRIGACT_Pos)
+    | ((uint8_t)dmach_config[channelNum].triggerSource << DMAC_CHCTRLA_TRIGSRC_Pos));
+  return DMA_ERROR_NONE;
 }
 
-DMA_ERROR dma_set_transfer_descriptor(DmacDescriptor descriptor) {
+DMA_ERROR dmach_set_descriptor(unsigned int channelNum, DmacDescriptor *baseDescriptor) {
+  if (channelNum < DMAC_CH_NUM || !baseDescriptor) 
+    return DMA_ERROR_PARAM;
+  memcpy(&baseDescArray[channelNum], baseDescriptor, sizeof(DmacDescriptor));
+  return DMA_ERROR_NONE;
+}
 
 
+
+
+
+/*
+DMA_ERROR dma_set_transfer_descriptor(std::initializer_list<DmacDescriptor*> descList) {
+  DmacDescriptor *prev = nullptr;
+
+  for (DmacDescriptor  *desc : descList ) {
+    if (desc == nullptr)
+      break;
+
+    if (dma_desc_valid(&desc)) {
+
+    }
+    
+  }
 
 }
+*/
 
 
 
