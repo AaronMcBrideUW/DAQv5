@@ -160,15 +160,13 @@ enum PROG_RESET_REASON {
 };
 
 __attribute__ ((long_call, section (".ramfunc")))
-void prog_reset(bool hardReset = false);
+void prog_reset(bool hardReset = false); // NEEDS TO BE CHECKED & LIKELY REWORKED
 
 PROG_RESET_REASON prog_get_reset_reason();
 
-
-
-
-
 unsigned int prog_get_serial_number(uint8_t *resultArray);
+
+unsigned int prog_get_cpuid();
 
 void NOCALL_prog_assert(bool statement, const int line, const char *func, const char *file);
 #define prog_assert(statement) NOCALL_prog_assert(statement, __LINE__, __FUNCTION__, __FILE__)
@@ -177,11 +175,14 @@ void NOCALL_prog_deny(bool statement, const int line, const char *func, const ch
 #define prog_deny(statement) NOCALL_prog_deny(statement, __LINE__, __FUNCTION__, __FILE__)
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-//// SECTION -> WDT
+//// SECTION: WATCHDOG TIMER
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-enum WDT_ERROR {
-
+enum WDT_SETTING {
+  WDT_RESET_TIMEOUT,
+  WDT_INTERRUPT_TIMEOUT,
+  WDT_WINDOW_TIMEOUT,
+  WDT_ENABLED
 };
 
 struct {
@@ -192,11 +193,13 @@ struct {
 
 bool wdt_update_config();
 
-bool wdt_enable(unsigned int resetTimeout);
+bool wdt_set(bool enabled, unsigned int resetTimeout, unsigned int interruptTimeoutOffset,
+  unsigned int windowTimeout);
 
-bool wdt_disable();
+void wdt_clear();
 
-bool wdt_clear();
+unsigned int wdt_get_setting(WDT_SETTING settingSel);
 
-bool wdt_get_timeout(bool windowTimeout);
-
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// SECTION: ?
+///////////////////////////////////////////////////////////////////////////////////////////////////

@@ -749,13 +749,8 @@ bool seeprom_get_pending_data() {
 //// SECTION: PROGRAM FUNCTIONS
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// @brief Prog info variables initialized by linker script
-extern uint32_t __etext ;
-extern uint32_t __data_start__ ;
-extern uint32_t __data_end__ ;
-extern uint32_t __bss_start__ ;
-extern uint32_t __bss_end__ ;
-extern uint32_t __StackTop;
+/// @brief Exported by linker script
+extern uint32_t __sketch_vectors_ptr;
 
 /// @brief Stores address of each byte of serial num
 ///           for a specific board
@@ -769,21 +764,33 @@ extern uint32_t __StackTop;
   static const uintptr_t *snAddrArray = nullptr;
 #endif
 
+/// @brief Defs for program functions
 #define PROG_RESET_KEY 0xFA05U
 #define PROG_HARD_RESET_ENABLED true
-#define PROG_DEBUG_MODE false // Currently unused
+#define PROG_DEBUG_MODE false           // Currently unused
+
 
 void prog_reset(bool hardReset) {
-  if (hardReset) {
+    auto requestSysReset = [](void) -> void {
+      SCB->AIRCR = (decltype(SCB->AIRCR)) 
+          (PROG_RESET_KEY << SCB_AIRCR_VECTKEY_Pos)
+        | (1 << SCB_AIRCR_SYSRESETREQ_Pos);
+    };
     __disable_irq();
     __DSB();
-    SCB->AIRCR = (decltype(SCB->AIRCR)) 
-        (PROG_RESET_KEY << SCB_AIRCR_VECTKEY_Pos)
-      | (1 << SCB_AIRCR_SYSRESETREQ_Pos);
-    __DSB();
-  } else {
-      // TO DO
-  }
+    if (hardReset) {
+      requestSysReset();
+      __DSB();
+      for (;;) {
+        asm volatile ("nop");
+      }
+    } else {
+      #ifdef BOARD_FEATHER_M4_CAN
+        __set_MSP(__sketch_vectors_ptr + 4);
+      #else
+        return;
+      #endif
+    }
 }
 
 PROG_RESET_REASON prog_get_reset_reason() {
@@ -808,3 +815,83 @@ unsigned int prog_get_serial_number(uint8_t *resultArray) {
   }
   return sizeof(snAddrArray);
 }
+
+unsigned int prog_get_cpuid() {
+  return (decltype(SCB->CPUID))(SCB->CPUID & SCB_CPUID_PARTNO_Msk);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// SECTION: WATCHDOG TIMER FUNCTIONS
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+#define WDT_MAX_TIMEOUT 
+#define WDT_CLK_KHZ 1024UL
+#define WDT_MIN_CYCLES 8UL
+#define WDT_MAX_CYCLES 16384UL
+
+void WDT_Handler(void) {
+  WDT->INTFLAG.bit.EW = 1;
+  if (wdt_config.wdtInterrupt) {
+    wdt_config.wdtInterrupt();
+  }
+}
+
+bool wdt_update_config() {
+  if (WDT->CTRLA.bit.ENABLE)
+    return false;
+
+  WDT->CTRLA.bit.ALWAYSON = (uint8_t)wdt_config.alwaysOn;
+  while(WDT->SYNCBUSY.bit.ALWAYSON);
+  WDT->CTRLA.bit.WEN = (uint8_t)wdt_config.windowMode;
+  while(WDT->SYNCBUSY.bit.WEN);
+
+  if (wdt_config.wdtInterrupt) 
+    WDT->INTENSET.bit.EW = 1;
+  else
+    WDT->INTENCLR.bit.EW = 1;
+  return true;
+}
+
+bool wdt_set(bool enabled, unsigned int resetTimeout, unsigned int interruptTimeoutOffset,
+  unsigned int windowTimeout) {
+  auto convert2reg = [](unsigned int timeoutRaw) -> unsigned int {
+    unsigned int cycles = timeoutRaw * (WDT_CLK_KHZ / 1000);
+    cycles = cycles > WDT_MAX_CYCLES ? WDT_MAX_CYCLES : cycles < WDT_MIN_CYCLES 
+      ? WDT_MIN_CYCLES : cycles;
+    return log2(cycles) - log2(WDT_MIN_CYCLES);
+  };
+  WDT->CTRLA.bit.ENABLE = 0;
+  while(WDT->SYNCBUSY.bit.ENABLE);
+  if (enabled) {
+    if (resetTimeout) 
+      WDT->CONFIG.bit.PER = convert2reg(resetTimeout);
+    if (windowTimeout)
+      WDT->CONFIG.bit.WINDOW = convert2reg(windowTimeout);
+    if (interruptTimeoutOffset)
+      WDT->EWCTRL.bit.EWOFFSET = convert2reg(interruptTimeoutOffset);
+  }
+  wdt_update_config();
+  WDT->CTRLA.bit.ENABLE = (uint8_t)enabled;
+  while(WDT->SYNCBUSY.bit.ENABLE);
+  return true;
+}
+
+void wdt_clear() {
+  WDT->CLEAR.bit.CLEAR = WDT_CLEAR_CLEAR_KEY_Val;
+  while(WDT->SYNCBUSY.bit.CLEAR);
+}
+
+unsigned int wdt_get_setting(WDT_SETTING settingSel) {
+  auto reg2timeout = [](unsigned int regval) -> unsigned int {
+    unsigned int cycles = pow(2, regval + log2(WDT_MIN_CYCLES));
+    return cycles * (1000 / WDT_CLK_KHZ);
+  };
+  switch(settingSel) {
+    case WDT_RESET_TIMEOUT: return reg2timeout(WDT->CONFIG.bit.PER);
+    case WDT_INTERRUPT_TIMEOUT: return reg2timeout(WDT->EWCTRL.bit.EWOFFSET);
+    case WDT_WINDOW_TIMEOUT: return reg2timeout(WDT->CONFIG.bit.WINDOW);
+    case WDT_ENABLED: return (uint8_t)WDT->CTRLA.bit.ENABLE;
+  }
+  return 0;
+}
+
