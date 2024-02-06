@@ -9,6 +9,12 @@
 
 #include "SYS.h"
 
+typedef struct ChannelDescriptor {
+  unsigned int transferThreshold = 1;
+  unsigned int burstLength = 0;
+  unsigned int priorityLvl = 2;
+  bool runInStandby = true;
+};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION: DMA FUNCTIONS
@@ -18,48 +24,71 @@ enum DMA_CB_REASON {
 
 };
 
-enum DMA_ERROR {
-  DMA_ERROR_NONE,
-  DMA_ERROR_UNKNOWN,
-  DMA_ERROR_PARAM,
-  DMA_ERROR_DESCRIPTOR,
+enum DMACH_STATE {
+  DMACH_STATE_UNKNOWN,
+  DMACH_STATE_DISABLED,
+  DMACH_STATE_IDLE,
+  DMACH_STATE_BUSY,
+  DMACH_STATE_PEND,
+};
+
+enum DMACH_ERROR {
+  DMACH_ERROR_NONE,
+  DMACH_ERROR_UNKNOWN,
+  DMACH_ERROR_CRC,
+  DMACH_ERROR_DESC,
+  DMACH_ERROR_TRANSFER
 };
 
 struct {
   bool roundRobinMode = false;
   unsigned int serviceQuality = 2;
   unsigned int irqPriority = 1;
-  void (*errorCallback)(unsigned int, DMA_ERROR) = nullptr;
+  void (*errorCallback)(unsigned int, DMACH_ERROR) = nullptr;
   void (*transferCallback)(unsigned int) = nullptr;
 }dmactrl_config;
 
-struct {
-  bool enableDurringStandby = true;
-  unsigned int transferThreshold = 1;
-  unsigned int burstLength = 0;
-  unsigned int priorityLvl = 2;
-  unsigned int triggerSource = 3;
-  unsigned int triggerAction = 3;
-}dmach_config[DMAC_CH_NUM];
 
-DMA_ERROR dmactrl_update_config(); // Done
+bool dmactrl_init(); // FP Complete
 
-DMA_ERROR dmactrl_init(); // Done
+bool dmactrl_exit(); // FP Complete
 
-DMA_ERROR dmactrl_exit(); // Done
+bool dmactrl_update_config(); // FP Complete
 
-DMA_ERROR dmactrl_reset();
 
-DMA_ERROR dmach_set_enabled(unsigned int channelNum, bool enabled); // Done 
 
-DMA_ERROR dmach_reset(unsigned int channelNum); 
+bool dmach_enable(unsigned int channelNum); // FP Complete 
 
-DMA_ERROR dmach_update_config(unsigned int channelNum); // Done 
+bool dmach_disable(unsigned int channelNum); // FP Complete 
 
-DMA_ERROR dmach_set_descriptor(unsigned int channelNum, DmacDescriptor *baseDescriptor); // DONE
+bool dmach_reset(unsigned int channelNum); // FP Complete
 
-DMA_ERROR dmach_trigger(unsigned int channelNum); 
 
-DMA_ERROR dmach_set_suspend(unsigned int channelNum, int suspendState);
 
+bool dmach_set_channel_desc(unsigned int channelNum, ChannelDescriptor &desc); // FP Complete
+
+bool dmach_set_transfer_desc(unsigned int channelNum, DmacDescriptor *desc); // FP Complete
+
+bool dmach_set_trigger(unsigned int channelNum, unsigned int triggerSrc,
+   unsigned int triggerAction); // FP Complete
+
+bool dmach_trigger(unsigned int channelNum); // FP Complete  
+
+bool dmach_set_cmd(unsigned int channelNum, int cmd); // FP Complete
+
+
+
+DMACH_ERROR dmach_get_error(unsigned int channelNum); // FP Complete
+
+DMACH_STATE dmach_get_state(unsigned int channelNum); // FP complete
+
+
+
+DmacDescriptor *dmaUtil_link_tdesc(std::initializer_list<DmacDescriptor*> descList,
+  bool loopList);
+
+bool dmaUtil_insert_tdesc(DmacDescriptor *base, DmacDescriptor *toInsert,
+  unsigned int insertIndex);
+
+  
 //DMA_ERROR dma_set_descriptor(std::initializer_list<DmacDescriptor*> transferDescs);
