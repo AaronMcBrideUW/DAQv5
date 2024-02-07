@@ -92,6 +92,7 @@ DmacDescriptor *dmach_get_base_trd(unsigned int channelNum); // FP Complete
 
 
 
+
 DmacDescriptor *trd_link_group(std::initializer_list<DmacDescriptor*> descList); // FP Complete
 
 bool trd_unlink_group(DmacDescriptor *baseDesc); // FP Complete
@@ -99,7 +100,10 @@ bool trd_unlink_group(DmacDescriptor *baseDesc); // FP Complete
 bool trd_insert(DmacDescriptor *baseDesc, DmacDescriptor *insertDesc, 
   unsigned int insertIndex); // FP Complete
 
-DmacDescriptor *trd_remove(DmacDescriptor *baseDesc, unsigned int removeIndex);
+DmacDescriptor *trd_remove(DmacDescriptor *baseDesc, unsigned int removeIndex); // FP Complete
 
-DmacDescriptor *trd_set_loop(DmacDescriptor *baseDesc, bool looped);
+bool trd_set_loop(DmacDescriptor *baseDesc, bool looped); // FP Complete
 
+bool trd_factory(DmacDescriptor *desc, void *src, void *dest, 
+  unsigned int incrSrc, unsigned int incrDest, unsigned int beatCount, 
+    unsigned int beatSize, unsigned int transferAction); // FP Complete

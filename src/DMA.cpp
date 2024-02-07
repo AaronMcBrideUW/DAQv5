@@ -36,6 +36,28 @@ static inline bool dma_desc_valid(DmacDescriptor *desc) {
     || !desc->BTCTRL.bit.VALID);
 }
 
+void DMAC_MAIN_HANDLER(void) {
+  unsigned int sourceNum = DMAC->INTPEND.bit.ID;
+  if (dmactrl_config.errorCallback) {
+    if (DMAC->Channel[sourceNum].CHINTFLAG.bit.TERR) {
+      // Consider clearing the transfer error flag here...
+      dmactrl_config.errorCallback(sourceNum, dmach_get_error(sourceNum));
+    }
+  }
+  if (dmactrl_config.transferCallback) {
+    if (DMAC->Channel[sourceNum].CHINTFLAG.bit.TCMPL) {
+      DMAC->Channel[sourceNum].CHINTFLAG.bit.TCMPL = 1;
+      dmactrl_config.transferCallback(sourceNum);
+    }
+  }
+}
+
+void DMAC_0_Handler(void) __attribute__((alias("DMAC_MAIN_HANDLER")));
+void DMAC_1_Handler(void) __attribute__((alias("DMAC_MAIN_HANDLER")));
+void DMAC_2_Handler(void) __attribute__((alias("DMAC_MAIN_HANDLER")));
+void DMAC_3_Handler(void) __attribute__((alias("DMAC_MAIN_HANDLER")));
+void DMAC_4_Handler(void) __attribute__((alias("DMAC_MAIN_HANDLER")));
+
 bool dmactrl_init() {
   if (DMAC->CTRL.bit.DMAENABLE)
     return false;
@@ -327,10 +349,70 @@ DmacDescriptor *trd_remove(DmacDescriptor *baseDesc, unsigned int removeIndex) {
   if (!baseDesc)
     return nullptr;
 
-  DmacDescriptor *currentTRD = baseDesc;
-  for (int i = 0; i < removeIndex; i++) {
-    
-    currentTRD = (DmacDescriptor*)currentTRD->DESCADDR.bit.DESCADDR;
+  DmacDescriptor *targetTRD = nullptr;
+  if (!removeIndex) {
+    targetTRD = baseDesc;
+    baseDesc = (DmacDescriptor*)targetTRD->DESCADDR.bit.DESCADDR;
+  } else {
+    DmacDescriptor *pastTRD = baseDesc;
+    for (int i = 0; i <= removeIndex; i++) {
+      if (!pastTRD->DESCADDR.bit.DESCADDR)
+        return nullptr;
+      pastTRD = (DmacDescriptor*)pastTRD->DESCADDR.bit.DESCADDR;
+    }
+    targetTRD = (DmacDescriptor*)pastTRD->DESCADDR.bit.DESCADDR;
+    pastTRD->DESCADDR.bit.DESCADDR = targetTRD->DESCADDR.bit.DESCADDR;
   }
+  targetTRD->DESCADDR.bit.DESCADDR = 0;
+  return targetTRD;
+}
 
+bool trd_set_loop(DmacDescriptor *baseDesc, bool looped) {
+  if (!baseDesc)
+    return false;
+
+  uintptr_t baseAddr = (uintptr_t)baseDesc;
+  DmacDescriptor *curr = baseDesc;
+  if (looped) {
+    while(curr->DESCADDR.bit.DESCADDR) {
+      if (curr->DESCADDR.bit.DESCADDR == baseAddr)
+        return true;
+      curr = (DmacDescriptor*)curr->DESCADDR.bit.DESCADDR;
+    }
+    curr->DESCADDR.bit.DESCADDR = baseAddr;
+  } else {
+    while(curr->DESCADDR.bit.DESCADDR != baseAddr) {
+      if (curr->DESCADDR.bit.DESCADDR)
+        return true;
+      curr = (DmacDescriptor*)curr->DESCADDR.bit.DESCADDR;
+    }
+    curr->DESCADDR.bit.DESCADDR = 0;
+  }
+  return true;
+}
+
+#define TRD_MAX_BEATSIZE 4
+#define TRD_MAX_BLOCKACT 3
+
+bool trd_factory(DmacDescriptor *desc, void *src, void *dest, 
+  unsigned int incrSrc, unsigned int incrDest, unsigned int beatCount, 
+    unsigned int beatSize, unsigned int transferAction) {
+
+  if (!desc || !src || !dest || (incrSrc > 1 && incrDest > 1)
+    || beatSize > TRD_MAX_BEATSIZE || transferAction > TRD_MAX_BLOCKACT) 
+      return false;  
+
+  desc->SRCADDR.bit.SRCADDR = (uintptr_t)src;
+  desc->DESCADDR.bit.DESCADDR = (uintptr_t)dest;
+  desc->BTCNT.bit.BTCNT = (decltype(desc->BTCNT.bit.BTCNT))beatCount; 
+
+  desc->BTCTRL.reg = 
+      (DMAC_BTCTRL_STEPSIZE((uint8_t)log2(incrSrc > incrDest ? incrSrc : incrDest)))
+    | ((uint8_t)(incrSrc > incrDest) << DMAC_BTCTRL_STEPSEL_Pos)
+    | ((uint8_t)(incrSrc > 0) << DMAC_BTCTRL_SRCINC_Pos)
+    | ((uint8_t)(incrDest > 0) << DMAC_BTCTRL_DSTINC_Pos)
+    | (DMAC_BTCTRL_BEATSIZE((uint8_t)log2(beatSize)))
+    | (DMAC_BTCTRL_BLOCKACT((uint8_t)transferAction))
+    | DMAC_BTCTRL_VALID;
+  return dma_desc_valid(desc);
 }
