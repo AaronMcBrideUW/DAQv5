@@ -55,6 +55,10 @@ bool dmactrl_exit(); // FP Complete
 
 bool dmactrl_update_config(); // FP Complete
 
+unsigned int dmactrl_get_active_channelNum(); // FP Complete
+
+unsigned int dmactrl_get_active_blockCount(); // FP Complete
+
 
 
 bool dmach_enable(unsigned int channelNum); // FP Complete 
@@ -65,9 +69,9 @@ bool dmach_reset(unsigned int channelNum); // FP Complete
 
 
 
-bool dmach_set_channel_desc(unsigned int channelNum, ChannelDescriptor &desc); // FP Complete
+bool dmach_set_chd(unsigned int channelNum, ChannelDescriptor &desc); // FP Complete
 
-bool dmach_set_transfer_desc(unsigned int channelNum, DmacDescriptor *desc); // FP Complete
+bool dmach_set_base_trd(unsigned int channelNum, DmacDescriptor *baseDesc); // FP Complete
 
 bool dmach_set_trigger(unsigned int channelNum, unsigned int triggerSrc,
    unsigned int triggerAction); // FP Complete
@@ -80,15 +84,22 @@ bool dmach_set_cmd(unsigned int channelNum, int cmd); // FP Complete
 
 DMACH_ERROR dmach_get_error(unsigned int channelNum); // FP Complete
 
-DMACH_STATE dmach_get_state(unsigned int channelNum); // FP complete
+DMACH_STATE dmach_get_state(unsigned int channelNum); // FP Complete
+
+DmacDescriptor *dmach_get_wbd(unsigned int channelNum); // FP Complete
+
+DmacDescriptor *dmach_get_base_trd(unsigned int channelNum); // FP Complete
 
 
 
-DmacDescriptor *dmaUtil_link_tdesc(std::initializer_list<DmacDescriptor*> descList,
-  bool loopList);
+DmacDescriptor *trd_link_group(std::initializer_list<DmacDescriptor*> descList); // FP Complete
 
-bool dmaUtil_insert_tdesc(DmacDescriptor *base, DmacDescriptor *toInsert,
-  unsigned int insertIndex);
+bool trd_unlink_group(DmacDescriptor *baseDesc); // FP Complete
 
-  
-//DMA_ERROR dma_set_descriptor(std::initializer_list<DmacDescriptor*> transferDescs);
+bool trd_insert(DmacDescriptor *baseDesc, DmacDescriptor *insertDesc, 
+  unsigned int insertIndex); // FP Complete
+
+DmacDescriptor *trd_remove(DmacDescriptor *baseDesc, unsigned int removeIndex);
+
+DmacDescriptor *trd_set_loop(DmacDescriptor *baseDesc, bool looped);
+

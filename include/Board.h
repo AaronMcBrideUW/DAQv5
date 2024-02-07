@@ -11,8 +11,6 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 //// NOTE: The "ID" of a component is it's descriptor's INDEX in the associated ref array
-
-
 struct PIN_DESCRIPTOR { 
   const uint8_t number; 
   const uint8_t group; 

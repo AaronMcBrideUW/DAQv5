@@ -30,14 +30,33 @@ enum SEEPROM_ERROR {
 //// SECTION -> PIN FUNCTIONS
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
+/// @brief Resets the state & settings of a pin
+/// @param pinID The id number of the pin to reset
+/// @return True if the opperation was successful, false otherwise.
 bool pin_reset(unsigned int pinID);
 
+/// @brief Attaches a pin to a peripheral, allowing the periphal to control it
+/// @param pinID The id number of the pin to target
+/// @param periphID The id number of the periphal to link to
+/// @return True if the opperation was successful, false otherwise
 bool pin_attach(unsigned int pinID, unsigned int periphID);
 
+/// @brief Ensures that a given pinID is valid (i.e. exists on board) 
+/// @param pinID The pinID to check
+/// @return True if the pin associated with the given ID is valid, false otherwise.
 bool pin_valid(const unsigned int pinID);
 
+/// @brief Sets the digital output of a GPIO pin
+/// @param pinID The id of the pin to set
+/// @param pinState 1 = drive high, -1 = drive low, 0 = dont drive
+/// @param pullPin If true pullup ressitor is connected to pin. When a pin
+///   with the pullup is driven high -> "pulled up" driven low -> "pulled down"
+/// @return True if the digital output of the pin was successfully set.
 bool pin_set_digital(unsigned int pinID, unsigned int pinState, bool pullPin = false);
 
+/// @brief Returns the current reading (digital) of a GPIO pin.
+/// @param pinID The id of the pin to target
+/// @return 1 if the pin reads "high", -1 if the pin reads "low" and 0 if neither.                  CHECKS THIS <----------------- 
 int pin_read_digital(unsigned int pinID);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
