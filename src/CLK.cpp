@@ -1,3 +1,4 @@
+/*
 
 #include "CLK.h"
 
@@ -547,6 +548,7 @@ OSC_STATUS get_dpll_status(int dpllNum) {
   return OSC_STATUS_DISABLED;
 }
 
+*/
 
 
 

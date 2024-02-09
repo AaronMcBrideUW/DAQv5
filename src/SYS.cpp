@@ -1,3 +1,4 @@
+/*
 
 #include "SYS.h"
 
@@ -766,31 +767,29 @@ extern uint32_t __sketch_vectors_ptr;
 
 /// @brief Defs for program functions
 #define PROG_RESET_KEY 0xFA05U
-#define PROG_HARD_RESET_ENABLED true
-#define PROG_DEBUG_MODE false           // Currently unused
 
 
 void prog_reset(bool hardReset) {
-    auto requestSysReset = [](void) -> void {
-      SCB->AIRCR = (decltype(SCB->AIRCR)) 
-          (PROG_RESET_KEY << SCB_AIRCR_VECTKEY_Pos)
-        | (1 << SCB_AIRCR_SYSRESETREQ_Pos);
-    };
-    __disable_irq();
-    __DSB();
-    if (hardReset) {
-      requestSysReset();
-      __DSB();
-      for (;;) {
-        asm volatile ("nop");
-      }
-    } else {
-      #ifdef BOARD_FEATHER_M4_CAN
-        __set_MSP(__sketch_vectors_ptr + 4);
-      #else
-        return;
-      #endif
-    }
+  auto requestSysReset = [](void) -> void {
+    SCB->AIRCR = (decltype(SCB->AIRCR)) 
+        (PROG_RESET_KEY << SCB_AIRCR_VECTKEY_Pos)
+      | (1 << SCB_AIRCR_SYSRESETREQ_Pos);
+  };
+  __disable_irq();
+  __DSB();
+  if (hardReset) {
+    requestSysReset();
+  } else {
+    #ifdef BOARD_FEATHER_M4_CAN
+      __set_MSP(__sketch_vectors_ptr + 4);
+    #else
+      return;
+    #endif
+  }
+  __DSB();
+  for (;;) {
+    asm volatile ("nop");
+  }
 }
 
 PROG_RESET_REASON prog_get_reset_reason() {
@@ -818,6 +817,27 @@ unsigned int prog_get_serial_number(uint8_t *resultArray) {
 
 unsigned int prog_get_cpuid() {
   return (decltype(SCB->CPUID))(SCB->CPUID & SCB_CPUID_PARTNO_Msk);
+}
+
+bool prog_sleep(PROG_SLEEP_MODE mode) {
+  if (PM->SLEEPCFG.bit.SLEEPMODE != 0);
+    return false;
+  __ISB();
+  PM->SLEEPCFG.bit.SLEEPMODE = (uint8_t)mode;
+  __DMB();
+  __WFI();
+  return true;
+}
+
+bool NOCALL_prog_assert(bool statement, const int line, const char *func, 
+  const char *file) {
+
+  if (!PROG_ASSERT_ENABLED)
+    return statement;
+
+  if (statement) {
+    NVIC_SystemReset();
+  }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -895,3 +915,4 @@ unsigned int wdt_get_setting(WDT_SETTING settingSel) {
   return 0;
 }
 
+*/

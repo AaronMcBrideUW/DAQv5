@@ -1,3 +1,5 @@
+/*
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// FILE -> SYS
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -25,6 +27,11 @@ enum SEEPROM_ERROR {
   SEEPROM_ERROR_LOCK,
   SEEPROM_ERROR_ADDR
 };
+
+/// @defgroup Important program settings
+#define PROG_DEBUG_MODE false   
+#define PROG_ASSERT_ENABLED true
+#define PROG_HARD_RESET_ENABLED true
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION -> PIN FUNCTIONS
@@ -164,7 +171,7 @@ bool seeprom_get_pending_data();
 unsigned int seeprom_get_size();
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-//// SECTION -> PROG FUNCTIONS
+//// SECTION: PROG FUNCTIONS (NEEDS TO BE COMPLETED...)
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 enum PROG_RESET_REASON {
@@ -178,24 +185,27 @@ enum PROG_RESET_REASON {
   POWERON_RESET
 };
 
+enum PROG_SLEEP_MODE {
+  SLEEP_IDLE = 2,
+  SLEEP_STANDBY = 4,
+  SLEEP_HIBERNATE = 5,
+  SLEEP_BACKUP = 6
+};
+
 __attribute__ ((long_call, section (".ramfunc")))
-void prog_reset(bool hardReset = false); // NEEDS TO BE CHECKED & LIKELY REWORKED
+void prog_reset(bool hardReset = false); // NOT COMPLETE
 
 PROG_RESET_REASON prog_get_reset_reason();
 
 unsigned int prog_get_serial_number(uint8_t *resultArray);
 
-unsigned int prog_get_cpuid();
+unsigned int prog_get_cpuid(PROG_SLEEP_MODE mode);
 
-void NOCALL_prog_assert(bool statement, const int line, const char *func, const char *file);
-#define prog_assert(statement) NOCALL_prog_assert(statement, __LINE__, __FUNCTION__, __FILE__)
-
-void NOCALL_prog_deny(bool statement, const int line, const char *func, const char *file);
-#define prog_deny(statement) NOCALL_prog_deny(statement, __LINE__, __FUNCTION__, __FILE__)
+bool prog_sleep(PROG_SLEEP_MODE mode); // NOT COMPLETE
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION: WATCHDOG TIMER
-///////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////// NEEDS REFACTOR
 
 enum WDT_SETTING {
   WDT_RESET_TIMEOUT,
@@ -220,5 +230,7 @@ void wdt_clear();
 unsigned int wdt_get_setting(WDT_SETTING settingSel);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-//// SECTION: ?
+//// SECTION: RTC
 ///////////////////////////////////////////////////////////////////////////////////////////////////
+
+*/
