@@ -2,37 +2,19 @@
 //// FILE: DMA 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-
-
 #pragma once
+#include "SYS.h"
 #include "sam.h"
 #include "inttypes.h"
 #include "initializer_list"
+#include "memory.h"
 
-#include "SYS.h"
+#define IRQ_MAX_PRIORITY 4 /// NOTE: THIS SHOULD BE REPLACED...
 
+#define _super_(_super_, _this_) explicit _this_(_super_ *super):super(super) {}; \
+                                const _super_ *super
 
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-//// SECTION: DMA VARS & DEFS
-///////////////////////////////////////////////////////////////////////////////////////////////////
-
-DmacDescriptor wbDescArray[DMAC_CH_NUM] __attribute__ ((aligned (16)));
-DmacDescriptor baseDescArray[DMAC_CH_NUM] __attribute__ ((aligned (16))); 
-
-#define DMA_IRQPRI_MAX 5 
-#define DMA_IRQ_COUNT 5
-#define DMA_PRILVL_COUNT 4
-
-enum DMACH_STATE {
-  DMACH_STATE_UNKNOWN,
-  DMACH_STATE_DISABLED,
-  DMACH_STATE_IDLE,
-  DMACH_STATE_BUSY,
-  DMACH_STATE_PEND,
-};
-
-enum DMACH_ERROR {
+enum DMA_ERROR {
   DMACH_ERROR_NONE,
   DMACH_ERROR_UNKNOWN,
   DMACH_ERROR_CRC,
@@ -40,98 +22,142 @@ enum DMACH_ERROR {
   DMACH_ERROR_TRANSFER
 };
 
-typedef void (*callbackFunction)(void) dmaErrorCallback;
-
-#define IRQ_MAX_PRIORITY 4 // FIND SOME WAY TO GET THIS ACTUALLY
-
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-//// SECTION: DMA FUNCTIONS
+//// SECTION: MISC
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-struct {
-  struct {
-    bool enabled = false;
-    bool roundRobinMode = false;
-    int serviceQuality = 2;
-  }priorityLvl[DMA_PRILVL_COUNT];
+/// @typedef DMA callback typedefs
+typedef void (*errorCBType)(int, DMA_ERROR);
+typedef void (*transferCBType)(int);
 
-  uint8_t irq_priority_lvl = 1;
-}config;
+/// @internal DMA storage variables
+DmacDescriptor wbDescArray[DMAC_CH_NUM] __attribute__ ((aligned (16)));
+DmacDescriptor baseDescArray[DMAC_CH_NUM] __attribute__ ((aligned (16))); 
+errorCBType errorCB = nullptr;
+transferCBType transferCB = nullptr;
 
+/// @defgroup DMA hardware properties 
+#define DMA_IRQ_COUNT 5
+#define DMA_PRILVL_COUNT 4
 
-typedef struct dma_ctrl_enabled { 
-  inline operator bool() {
-    return static_cast<bool>(DMAC->CTRL.bit.DMAENABLE);
-  }
-  inline bool operator = (const bool value) {
-    DMAC->CTRL.bit.DMAENABLE = 0;
-    DMAC->CRCCTRL.reg &= ~DMAC_CRCCTRL_MASK;
-    DMAC->CTRL.bit.SWRST = 1;
-    while(DMAC->CTRL.bit.SWRST);
-    if (value) {
-      if (config.priorityLvl->serviceQuality > 3
-        ||config.irq_priority_lvl > IRQ_MAX_PRIORITY) {
-        return false;
-      }
-      for (int i = 0; i < DMA_IRQ_COUNT; i++) {
-        NVIC_ClearPendingIRQ((IRQn_Type)(DMAC_0_IRQn + i));
-        NVIC_SetPriority((IRQn_Type)(DMAC_0_IRQn + i), 
-          config.irq_priority_lvl);
-        NVIC_EnableIRQ((IRQn_Type)(DMAC_0_IRQn + i));
-      }
-      for (int i = 0; i < DMA_PRILVL_COUNT; i++) {
-        DMAC->CTRL.reg |= 
-          ((uint8_t)config.priorityLvl[i].enabled 
-            << (DMAC_CTRL_LVLEN0_Pos + i));    
-        DMAC->PRICTRL0.reg |= 
-          ((uint8_t)config.priorityLvl[i].roundRobinMode 
-            << (DMAC_PRICTRL0_RRLVLEN0_Pos + i * 8))
-        | ((uint8_t)config.priorityLvl[i].serviceQuality 
-            << (DMAC_PRICTRL0_QOS0_Pos + i * 8));
-      }
-      DMAC->BASEADDR.reg = (uint32_t)baseDescArray;
-      DMAC->WRBADDR.reg = (uint32_t)wbDescArray;
-      DMAC->CTRL.bit.DMAENABLE = 1;
-    }
-    return true;
-  }
-};
+#define DMA_IRQPRI_MAX 5 
+#define DMA_QOS_MAX 3
 
-typedef struct dma_active_remainingBytes{
-  operator int() {
-    uint32_t count = DMAC->ACTIVE.bit.BTCNT;
-    if (DMAC->ACTIVE.bit.ABUSY || !count) {
-      return 0;
-    } else 
-    return count / wbDescArray[DMAC->ACTIVE.bit.ID].BTCTRL.bit.BEATSIZE;
-  }
-};
+/// @defgroup DMA misc config
+const int IRQ_PRILVL = 1;
+const int PRILVL_SERVICE_QUAL[DMA_PRILVL_COUNT] = { 2 };
+const bool PRILVL_RR_MODE[DMA_PRILVL_COUNT] = { false };
+const bool PRILVL_ENABLED[DMA_PRILVL_COUNT] = { true };
 
-typedef struct dma_active_id{
-  inline operator int() { 
-    return DMAC->ACTIVE.bit.ID; 
-  }
-};
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// SECTION: INTERFACE MODULES
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
-typedef struct dma_active_busy{
-  inline operator bool() { 
-    return DMAC->ACTIVE.bit.ABUSY; 
-  }
-};
+struct sys{
 
-/////////// DMAC CHANNEL TYPEDEFS ///////////
+  bool reset();
 
-typedef struct {
+  struct init {
+    // TO DO
+  };
 
+  struct enabled{ 
+    inline operator bool();
+    bool operator = (const bool value);
+  }enabled;
 
-  bool operator = (void (*dmaErrorCallback)(void)) {
+  struct errorCallback{
+    inline operator errorCBType(); /// MAY HAVE TO ADD BOOL OP HERE...
+    inline bool operator = (const errorCBType errorCallback);
+  }errorCallback;
 
-  } 
+  struct transferCallback{
+    inline operator transferCBType();
+    inline bool operator = (const transferCBType transferCallback);
+  }transferCallback;
 
 };
 
+struct activeChannel {
 
+  struct remainingBytes{
+    inline operator int();
+  }remainingBytes;
 
+  struct index{
+    inline operator int();
+  }index;
+
+  struct busy{
+    inline operator bool();
+  }busy;
+
+}activeChannel;
+
+enum CHANNEL_STATE {
+  STATE_DISABLED,
+  STATE_IDLE,
+  STATE_ACTIVE,
+  STATE_SUSPENDED
+};
+
+struct channel {
+  channel(const int &index):index(index) {};
+  const int &index;
+
+  bool trigger();
+
+  struct enabled {
+    inline operator bool();
+    bool operator = (const bool value);
+    _super_(channel, enabled);
+  }enabled{this};
+
+  struct triggerSrc {
+
+  }triggerSrc;
+
+  struct triggerAction {
+
+  }triggerAction;
+
+  struct suspended {
+
+  }suspended;
+
+  struct baseDescriptor {
+
+  }baseDescriptor;
+
+  struct writebackDescriptor {
+
+  }writebackDescriptor;
+
+  struct error {
+
+  }error;
+
+  struct config {
+    explicit config(const int index):index(index) {};
+    const int &index;
+
+    struct transferThreshold{
+
+      _super_(config, transferThreshold);
+    }transferThreshold{this};
+
+    struct burstLength{
+
+      _super_(config, burstLength);
+    }burstlength{this};
+
+    struct runInStandby {
+
+    }runInStandby;
+
+  }config{this};
+
+}channel;
 
 
 
