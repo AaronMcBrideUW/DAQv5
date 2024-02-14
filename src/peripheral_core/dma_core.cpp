@@ -8,6 +8,7 @@
 //// SECTION: SYSTEM 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
+//// DMA ENABLED
 sys::enabled::operator bool() {
   return (bool)DMAC->CTRL.bit.DMAENABLE;
 }
@@ -39,7 +40,7 @@ void sys::enabled::operator = (const bool value) {
     }
   }
 }
-
+//// DMA ERROR CALLBACK
 void sys::errorCallback::operator = (const errorCBType errorCallback) {
   errorCB = errorCallback;
   if (errorCallback) {
@@ -56,7 +57,10 @@ void sys::errorCallback::operator = (const errorCBType errorCallback) {
 sys::errorCallback::operator errorCBType() {
   return errorCB;
 }
-
+sys::errorCallback::operator bool() {
+  return errorCB != nullptr;
+}
+//// DMA TRANSFER CALLBACK
 void sys::transferCallback::operator = (const transferCBType transferCallback) {
   transferCB = transferCallback; 
   if (transferCallback) {
@@ -73,6 +77,9 @@ void sys::transferCallback::operator = (const transferCBType transferCallback) {
 sys::transferCallback::operator transferCBType() {
   return transferCB;
 }
+sys::transferCallback::operator bool() {
+  return transferCB != nullptr;
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION: DMA ACTIVE CHANNEL 
@@ -88,6 +95,7 @@ activeChannel::remainingBytes::operator int() {
 
 activeChannel::remainingBytes::operator int() {
   return DMAC->ACTIVE.bit.ID; 
+
 }
 
 activeChannel::busy::operator bool() {
@@ -98,14 +106,27 @@ activeChannel::busy::operator bool() {
 //// SECTION: DMA CHANNEL 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-void channel::enabled::operator = (const bool value) {
-  DMAC->Channel[super->index].CHCTRLA.bit.ENABLE = (uint8_t)value;
+//// TRANSFER DESCRIPTOR
+transferDescriptor channel::descriptorList::operator [] (const int &index) {
+  DmacDescriptor *desc = &baseDescArray[super->index];
+  for (int i = 0; i < index; i++) {
+    if (!desc->DESCADDR.bit.DESCADDR) { 
+      return transferDescriptor(desc);
+    }
+    desc = (DmacDescriptor*)desc->DESCADDR.bit.DESCADDR;
+  }
+  return transferDescriptor(desc);
 }
-channel::enabled::operator bool() {
-  return DMAC->Channel[super->index].CHCTRLA.bit.ENABLE;
+void channel::descriptorList::operator = (std::initializer_list<transferDescriptor&> descList) {
+
+
+
+
 }
 
-bool channel::state::operator = (const CHANNEL_STATE value) {
+
+//// CHANNEL STATE
+bool channel::state::operator = (const CHANNEL_STATE &value) {
   auto setSuspend = [&](int value) -> void {
     if (value > 0) {
       DMAC->Channel[super->index].CHCTRLB.bit.CMD == DMAC_CHCTRLB_CMD_SUSPEND_Val;
@@ -120,7 +141,7 @@ bool channel::state::operator = (const CHANNEL_STATE value) {
     if (value) {
       DMAC->Channel[super->index].CHCTRLA.bit.ENABLE = 1;
     } else {
-      setSuspend(0); // May not be necessary...
+      setSuspend(0);
       DMAC->Channel[super->index].CHCTRLA.bit.ENABLE = 0;
       while(DMAC->Channel[super->index].CHSTATUS.bit.BUSY);
     }
@@ -155,35 +176,252 @@ bool channel::state::operator = (const CHANNEL_STATE value) {
   }
   return true;
 }
-
-//                                                                      NEEDS TO BE REDONE!
 channel::state::operator CHANNEL_STATE() {
   if (!DMAC->Channel[super->index].CHCTRLA.bit.ENABLE) {
     return STATE_DISABLED;
   } else if (DMAC->Channel[super->index].CHINTFLAG.bit.SUSP) {
     return STATE_SUSPENDED;
-  } else if (DMAC->Channel[super->index].CHSTATUS.bit.BUSY
-    || DMAC->Channel[super->index].CHSTATUS.bit.PEND) {
-    //return STATE_ACTIVE;
+  } else if (DMAC->Channel[super->index].CHSTATUS.bit.BUSY) {
+    return STATE_ACTIVE;
+  } else if (DMAC->Channel[super->index].CHSTATUS.bit.PEND) {
+    return STATE_PENDING;
   }
   return STATE_IDLE;    
 }
+//// CHANNEL ERROR
+bool channel::error::operator == (const CHANNEL_ERROR &err) {
+  return (CHANNEL_ERROR)(*this) == err;
+}
+channel::error::operator CHANNEL_ERROR() {
+  if (DMAC->Channel[super->index].CHINTFLAG.bit.TERR) {
+    if (DMAC->Channel[super->index].CHSTATUS.bit.FERR) {
+      return ERROR_DESC;
+    }
+    return ERROR_TRANSFER;
+  } else if (DMAC->Channel[super->index].CHSTATUS.bit.CRCERR) {
+    return ERROR_CRC;
+  } 
+  return ERROR_NONE;
+}
+channel::error::operator bool() {
+  return (*this) != ERROR_NONE;
+}
 
-void channel::triggerSource::operator = (const TRIGGER_SOURCE value) {
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// SECTION: DMA CHANNEL CONFIG
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+//// TRIGGER SOURCE 
+void channelConfig::triggerSource::operator = (const TRIGGER_SOURCE &value) {
   DMAC->Channel[super->index].CHCTRLA.bit.TRIGSRC = (uint8_t)value;
 }
-channel::triggerSource::operator TRIGGER_SOURCE() {
+channelConfig::triggerSource::operator TRIGGER_SOURCE() {
   return static_cast<TRIGGER_SOURCE>
     (DMAC->Channel[super->index].CHCTRLA.bit.TRIGSRC);
 }
 
-void channel::triggerAction::operator = (const TRIGGER_ACTION value) {
+//// TRIGGER ACTION 
+void channelConfig::triggerAction::operator = (const TRIGGER_ACTION &value) {
   DMAC->Channel[super->index].CHCTRLA.bit.TRIGACT = (uint8_t)value;
 }
-channel::triggerAction::operator TRIGGER_ACTION() {
+channelConfig::triggerAction::operator TRIGGER_ACTION() {
   return static_cast<TRIGGER_ACTION>
     (DMAC->Channel[super->index].CHCTRLA.bit.TRIGACT);
 }
+//// BURST THRESHOLD 
+bool channelConfig::burstThreshold::operator = (const int &value) {
+  static const int THRESH_REF[] = {1, 2, 4, 8};
+  for (int i = 0; i < sizeof(THRESH_REF) / sizeof(THRESH_REF[0]); i++) {
+    if (value == THRESH_REF[i]) {
+      DMAC->Channel[super->index].CHCTRLA.bit.THRESHOLD = i;
+      DMAC->Channel[super->index].CHCTRLA.bit.BURSTLEN = value - 1;
+      return true;
+    }    
+  }
+  return false;
+}
+channelConfig::burstThreshold::operator int() {
+  return (1 << DMAC->Channel[super->index].CHCTRLA.bit.THRESHOLD, 2);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// SECTION: DMA DESCRIPTOR LIST
+///////////////////////////////////////////////////////////////////////////////////////////////////
+#define DMA_MAX_DESC 256
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// SECTION: DMA TRANSFER DESCRIPTOR
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+static const int INCR_REF[] = {1, 2, 4, 8, 16, 32, 64, 128};
+static const int DATASIZE_REF[] = {8, 16, 32};
+
+//// CONSTRUCTORS
+transferDescriptor::transferDescriptor() {
+  descriptor = new DmacDescriptor;
+}
+transferDescriptor::transferDescriptor(DmacDescriptor *desc) {
+  descriptor = desc;
+}
+transferDescriptor::transferDescriptor(const transferDescriptor &other) {
+  (*this) = other;
+}
+//// ASSIGNMENT (COPY) OPERATOR
+void transferDescriptor::operator = (const transferDescriptor &other) {
+  if (&other == this) {
+    return;
+  }
+  uintptr_t nextAddr = descriptor->DESCADDR.bit.DESCADDR;
+  memcpy(descriptor, &other.descriptor, sizeof(DmacDescriptor));
+  descriptor->DESCADDR.bit.DESCADDR = nextAddr;
+}
+
+//// TRANSFER SOURCE
+bool transferDescriptor::addr::operator = (const void *ptr) {
+  uintptr_t address = (uintptr_t)ptr;
+  if (ptr && address != DMAC_SRCADDR_RESETVALUE) {
+    return false;
+  }
+  if (type == 0) {
+    super->descriptor->SRCADDR.bit.SRCADDR = address;
+  } else {
+    super->descriptor->DSTADDR.bit.DSTADDR = address;
+  }
+  return true; 
+}
+transferDescriptor::addr::operator void*() const {
+  uintptr_t address = (uintptr_t)(*this);
+  return (address == DMAC_SRCADDR_RESETVALUE ? nullptr : (void*)address);
+}
+transferDescriptor::addr::operator uintptr_t() const {
+  return (type ? super->descriptor->SRCADDR.bit.SRCADDR
+    : super->descriptor->DSTADDR.bit.DSTADDR);
+}
+//// INCREMENT LOCATION
+bool transferDescriptor::increment::operator = (const int &value) {
+  int stepsel = type ? DMAC_BTCTRL_STEPSEL_DST_Val 
+    : DMAC_BTCTRL_STEPSEL_SRC_Val;
+  decltype(super->descriptor->BTCTRL.reg) regMask = type 
+    ? DMAC_BTCTRL_SRCINC : DMAC_BTCTRL_DSTINC;
+  if (!value) {
+    super->descriptor->BTCTRL.reg &= ~regMask;
+    return true;
+  }
+  for (int i = 0; i < sizeof(INCR_REF) / sizeof(INCR_REF[0]); i++) {
+    if (value == INCR_REF[i]) {
+      if (value == 1) {
+        super->descriptor->BTCTRL.reg |= regMask;
+        if (super->descriptor->BTCTRL.bit.STEPSEL == stepsel) {
+          super->descriptor->BTCTRL.bit.STEPSIZE = 0;
+        }
+      } else {
+        super->descriptor->BTCTRL.bit.STEPSEL = stepsel;
+        super->descriptor->BTCTRL.bit.STEPSIZE = i;
+      }
+      return true;
+    }
+  }
+  return false;
+}
+transferDescriptor::increment::operator int() const {
+  int stepsel = type ? DMAC_BTCTRL_STEPSEL_DST_Val 
+    : DMAC_BTCTRL_STEPSEL_SRC_Val;
+  decltype(super->descriptor->BTCTRL.reg) regMask = type 
+    ? DMAC_BTCTRL_SRCINC : DMAC_BTCTRL_DSTINC;
+  if ((super->descriptor->BTCTRL.reg & regMask) == 0) {
+    return 0;
+  }
+  if (super->descriptor->BTCTRL.bit.STEPSEL == stepsel) {
+    return INCR_REF[super->descriptor->BTCTRL.bit.STEPSIZE];
+  }
+  return 1;
+}
+//// DATA SIZE
+bool transferDescriptor::dataSize::operator = (const int &value) {
+  for (int i = 0; i < sizeof(DATASIZE_REF) / sizeof(DATASIZE_REF[0]); i++) {
+    if (value == DATASIZE_REF[i]) {
+      super->descriptor->BTCTRL.bit.BEATSIZE = i;
+      return true;
+    }
+  }
+  return false;
+}
+transferDescriptor::dataSize::operator int() const {
+  return DATASIZE_REF[super->descriptor->BTCTRL.bit.BEATSIZE];
+}
+//// TRANSFER LENGTH
+bool transferDescriptor::length::operator = (const int &value) {
+  if (value < 0 || value > UINT16_MAX) {
+    return false;
+  }
+  super->descriptor->BTCNT.bit.BTCNT = value;
+  return true;
+}
+transferDescriptor::length::operator int() const {
+  return super->descriptor->BTCNT.bit.BTCNT;
+}
+//// SUSPEND ON COMPLETE
+void transferDescriptor::suspOnCompl::operator = (const bool &value) {
+  super->descriptor->BTCTRL.bit.BLOCKACT = value 
+    ? DMAC_BTCTRL_BLOCKACT_SUSPEND_Val : DMAC_BTCTRL_BLOCKACT_NOACT_Val;
+}
+transferDescriptor::suspOnCompl::operator bool() const {
+  return super->descriptor->BTCTRL.bit.BLOCKACT == DMAC_BTCTRL_BLOCKACT_SUSPEND_Val;
+}
+//// DESCRIPTOR VALID
+bool transferDescriptor::valid::operator = (const bool &value) {
+  if (value 
+    && super->descriptor->SRCADDR.bit.SRCADDR != DMAC_SRCADDR_RESETVALUE
+    && super->descriptor->DESCADDR.bit.DESCADDR != DMAC_SRCADDR_RESETVALUE
+    && super->descriptor->BTCNT.bit.BTCNT != DMAC_BTCNT_RESETVALUE) {
+    return false;
+  }
+  super->descriptor->BTCTRL.bit.VALID = (uint8_t)value;
+  return true;
+}
+transferDescriptor::valid::operator bool() const {
+  return super->descriptor->BTCTRL.bit.VALID;
+}
+//// RESET
+void transferDescriptor::reset() {
+  uintptr_t nextAddr = descriptor->DESCADDR.bit.DESCADDR;
+  memset(descriptor, 0, sizeof(DmacDescriptor));
+  descriptor->DESCADDR.bit.DESCADDR = nextAddr;
+}
+/*
+transferDescriptor::~transferDescriptor() {
+  if (descriptor == &baseDescArray[index]) {
+    if (descriptor->DESCADDR.bit.DESCADDR) {
+      DmacDescriptor *next = (DmacDescriptor*)descriptor->DESCADDR.bit.DESCADDR;
+      memcpy(&baseDescArray[index], next, sizeof(DmacDescriptor));
+      if (prevDescriptor) {
+        if (prevDescriptor == next) {
+          baseDescArray[index].DESCADDR.bit.DESCADDR 
+            = (uintptr_t)(&baseDescArray[index]);
+        } else {
+          prevDescriptor->DESCADDR.bit.DESCADDR 
+            = (uintptr_t)(&baseDescArray[index]);
+        }
+      }
+      delete next;
+    } else {
+      memset(&baseDescArray[index], 0, sizeof(DmacDescriptor));        
+    }   
+  } else {
+    if (prevDescriptor) {
+      prevDescriptor->DESCADDR.bit.DESCADDR = descriptor->DESCADDR.bit.DESCADDR;
+    }
+    delete descriptor;
+  }
+}
+*/
+
+
+
+
 
 
 

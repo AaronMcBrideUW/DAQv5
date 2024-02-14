@@ -10,8 +10,24 @@
 #include "memory.h"
 
 #define IRQ_MAX_PRIORITY 4 /// NOTE: THIS SHOULD BE REPLACED...
-#define _super_(_super_, _this_) explicit _this_(_super_ *super):super(super) {}; \
-                                const _super_ *super
+#define _super_(_super_, _this_) \
+  explicit _this_(_super_ *super):super(super) {}; \
+  private: _super_ *super = nullptr
+
+#define _multi_(_super_, _this_) \
+  explicit _this_(_super_ *super, const int type); \
+  private: _super_ *super; const int type
+
+/// @enum Forward declarations
+enum CHANNEL_STATE;
+enum CHANNEL_ERROR;
+enum TRIGGER_ACTION;
+enum TRIGGER_SOURCE;
+
+
+struct sys;
+struct channel;
+struct transferDescriptor;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION: MISC
@@ -27,16 +43,9 @@ DmacDescriptor baseDescArray[DMAC_CH_NUM] __attribute__ ((aligned (16)));
 errorCBType errorCB = nullptr;
 transferCBType transferCB = nullptr;
 
-/// @defgroup DMA Enums
-enum CHANNEL_STATE;
-enum CHANNEL_ERROR;
-enum TRIGGER_SOURCE;
-enum TRIGGER_ACTION;
-
 /// @defgroup DMA hardware properties 
 #define DMA_IRQ_COUNT 5
 #define DMA_PRILVL_COUNT 4
-
 #define DMA_IRQPRI_MAX 5 
 #define DMA_QOS_MAX 3
 
@@ -47,10 +56,10 @@ const bool PRILVL_RR_MODE[DMA_PRILVL_COUNT] = { false };
 const bool PRILVL_ENABLED[DMA_PRILVL_COUNT] = { true };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-//// SECTION: INTERFACE MODULES
+//// SECTION: SYS MODULE
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-struct sys{
+typedef struct sys{
 
   // More to do -> init() method??
 
@@ -60,18 +69,24 @@ struct sys{
   }enabled;
 
   struct errorCallback{
-    inline operator errorCBType(); /// MAY HAVE TO ADD BOOL OP HERE...
+    inline operator errorCBType(); 
+    inline operator bool();
     inline void operator = (const errorCBType);
   }errorCallback;
 
   struct transferCallback{
     inline operator transferCBType();
+    inline operator bool();
     inline void operator = (const transferCBType);
   }transferCallback;
 
 };
 
-struct activeChannel {
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// SECTION: ACTIVE CHANNEL MODULE
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+typedef struct activeChannel {
 
   struct remainingBytes{
     inline operator int();
@@ -85,76 +100,131 @@ struct activeChannel {
     inline operator bool();
   }busy;
 
-}activeChannel;
+};
 
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// SECTION: CHANNEL MODULE
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
-struct channel {
+typedef struct channel { // Rename to channel ctrl
   channel(const int &index):index(index) {};
   const int &index;
 
-  bool trigger();
+
+  struct descriptorList {
+    void operator = (std::initializer_list<transferDescriptor&>);
+    transferDescriptor operator[] (const int&);  
+    _super_(channel, descriptorList);
+  }descriptorList{this};
 
   struct state {
-    bool operator = (const CHANNEL_STATE);
+    bool operator = (const CHANNEL_STATE&);
     inline operator CHANNEL_STATE();
-    inline operator int();
     inline bool operator == (const CHANNEL_STATE);
     _super_(channel, state);
   }state{this};
 
-  struct enabled {
+  struct error {
+    inline operator CHANNEL_ERROR();
     inline operator bool();
-    inline void operator = (const bool);
-    _super_(channel, enabled);
-  }enabled{this};
+    inline bool operator == (const CHANNEL_ERROR&);
+    _super_(channel, error);
+  }error{this};
 
-  struct triggerSource {
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// SECTION: CHANNEL CONFIG MODULE
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+struct channelConfig {
+  explicit channelConfig(const int index):index(index) {};
+  const int &index;
+
+  /// @brief Sets the trigger source of the channel.
+  /// @param  operator_equals Sets value & does not return. ENUM -> ACTION_...
+  /// @param  cast_enum Returns current value.
+  struct triggerSource { 
+    inline void operator = (const TRIGGER_SOURCE&);
     inline operator TRIGGER_SOURCE();
-    void operator = (const TRIGGER_SOURCE);
-    _super_(channel, triggerSource);
+    _super_(channelConfig, triggerSource);
   }triggerSrc{this};
 
-  struct triggerAction {
+  /// @brief  Specifies action taken when channel is triggered.
+  /// @param  operator_equals Sets value & does not return. ENUM -> TRIGGER_...
+  /// @param  cast_enum Returns current value.
+  struct triggerAction { 
+    inline void operator = (const TRIGGER_ACTION&);
     inline operator TRIGGER_ACTION();
-    void operator = (const TRIGGER_ACTION);
-    _super_(channel, triggerAction);
+    _super_(channelConfig, triggerAction);
   }triggerAction{this};
 
 
-  struct baseDescriptor {
+  /// @brief Number of values sent per burst (smallest transfer increment).
+  /// @param operator_equals Sets quantity & returns true only if quantity is valid.
+  /// @param cast_int Returns current quantity.
+  struct burstThreshold { 
+    inline bool operator = (const int&);
+    inline operator int();
+    _super_(channelConfig, burstThreshold);
+  }burstThreshold{this};
 
+};
 
-  }baseDescriptor;
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// SECTION: TRANSFER DESCRIPTOR MODULE
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
-  struct writebackDescriptor {
+typedef struct transferDescriptor { 
+  friend channel; 
+  transferDescriptor();
+  transferDescriptor(const transferDescriptor&);
+  transferDescriptor(DmacDescriptor*);
 
-  }writebackDescriptor;
+  inline void operator = (const transferDescriptor&);
 
-  struct error {
+  struct addr {
+    inline bool operator = (const void*);
+    inline operator void*() const;
+    inline operator uintptr_t() const;
+    _multi_(transferDescriptor, addr);
+  }src{this, 0}, dest{this, 1};
 
-  }error;
+  struct increment {
+    bool operator = (const int&);
+    operator int() const;
+    _multi_(transferDescriptor, increment);
+  }incrementSrc{this, 0}, incrementDest{this, 1};
 
-  struct config {
-    explicit config(const int index):index(index) {};
-    const int &index;
+  struct dataSize {
+    inline bool operator = (const int&);
+    inline operator int() const;
+    _super_(transferDescriptor, dataSize);
+  }dataSize{this};
 
-    struct transferThreshold{
+  struct length {
+    inline bool operator = (const int&);
+    inline operator int() const;
+    _super_(transferDescriptor, length);
+  }length{this};
 
-      _super_(config, transferThreshold);
-    }transferThreshold{this};
+  struct suspOnCompl {
+    inline void operator = (const bool&);
+    inline operator bool() const;
+    _super_(transferDescriptor, suspOnCompl);
+  }suspOnCompl{this};
 
-    struct burstLength{
+  struct valid {
+    inline bool operator = (const bool&);
+    inline operator bool() const;
+    _super_(transferDescriptor, valid);
+  }valid{this};
 
-      _super_(config, burstLength);
-    }burstlength{this};
+  inline void reset();
 
-    struct runInStandby {
-
-    }runInStandby;
-
-  }config{this};
-
-}channel;
+  private:
+    DmacDescriptor *descriptor;
+};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION: ENUMS
@@ -162,7 +232,6 @@ struct channel {
 
 enum CHANNEL_ERROR {
   ERROR_NONE,
-  ERROR_UNKNOWN,
   ERROR_CRC,
   ERROR_DESC,
   ERROR_TRANSFER
@@ -173,16 +242,16 @@ enum CHANNEL_STATE {
   STATE_IDLE,
   STATE_SUSPENDED,
   STATE_PENDING,
-  STATE_ACTIVE,
+  STATE_ACTIVE
 };
 
-enum TRIGGER_ACTION : uint8_t {
-  TRANSFER_BLOCK = 0,
-  TRANSFER_BURST = 2,
-  TRANSFER_ALL   = 3
+enum TRIGGER_ACTION {
+  ACTION_TRANSFER_BLOCK = 0,
+  ACTION_TRANSFER_BURST = 2,
+  ACTION_TRANSFER_ALL   = 3
 };
 
-enum TRIGGER_SOURCE : uint8_t {
+enum TRIGGER_SOURCE {
   TRIGGER_SOFTWARE          = 0,
   TRIGGER_RTC_TIMESTAMP     = 1,
   TRIGGER_DSU_DCC0          = 2,
