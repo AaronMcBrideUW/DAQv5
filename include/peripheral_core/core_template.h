@@ -51,9 +51,21 @@ class PropertyInterface<T, typename std::conditional<_isBasic<T>::result, T, voi
     bool operator = (const T &value) {
       return set(value);
     }
+    bool operator = (const PropertyInterface<T> &other) {
+      if (&other == this) {
+        return false;
+      }
+      return set(other.get());
+    }
     operator T() {
       return get();
     }
+    bool operator == (const PropertyInterface<T> &other) {
+      if (&other == this) {
+        return true;
+      }
+      return other.get() == get();
+    } 
 
   private:
     bool (&set)(const T&);
@@ -71,6 +83,12 @@ class PropertyInterface<T, typename std::conditional<_isEnum<T>::result, T, void
     bool operator = (const typename std::underlying_type<T>::type &value) {
       return set(static_cast<const T>(value));
     }
+    bool operator = (const PropertyInterface<T> &other) {
+      if (&other == this) {
+        return false;
+      }
+      return set(other.get());
+    }
     operator T() {
       return get();
     }
@@ -79,6 +97,9 @@ class PropertyInterface<T, typename std::conditional<_isEnum<T>::result, T, void
     }
     bool operator == (const T &value) {
       return value == get();
+    }
+    bool operator == (const PropertyInterface<T> &other) {
+      return get() == other.get();
     }
 
   private:
@@ -95,15 +116,24 @@ class PropertyInterface<T, typename std::conditional<_isPtr<T>::result,
 
     bool operator = (T &value) {
       bool result = set(value);
-      if (result  && nullify) {
+      if (result && nullify) {
         value = nullptr;
       }
       return result;
     }
+    bool operator = (const typename std::remove_pointer<T>::type &value) {
+      if ()
+    }
+    bool operator = (const PropertyInterface<T> &other) {
+      if (&other == this) {
+        return false;
+      }
+      set(other.get());
+    }
     operator T() {
       return get();
     }
-    typename std::remove_pointer<T>::value operator * (PropertyInterface<T, T>) {
+    typename std::remove_pointer<T>::type operator * (PropertyInterface<T, T>) {
       T *result = get();
       if (!result) {
         // THROW HERE?
