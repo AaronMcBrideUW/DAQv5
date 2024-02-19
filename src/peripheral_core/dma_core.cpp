@@ -1,3 +1,4 @@
+/*
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// FILE: DIRECT MEMORY ACCESS INTERFACE - CPP
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -391,38 +392,34 @@ void transferDescriptor::reset() {
   memset(descriptor, 0, sizeof(DmacDescriptor));
   descriptor->DESCADDR.bit.DESCADDR = nextAddr;
 }
-/*
-transferDescriptor::~transferDescriptor() {
-  if (descriptor == &baseDescArray[index]) {
-    if (descriptor->DESCADDR.bit.DESCADDR) {
-      DmacDescriptor *next = (DmacDescriptor*)descriptor->DESCADDR.bit.DESCADDR;
-      memcpy(&baseDescArray[index], next, sizeof(DmacDescriptor));
-      if (prevDescriptor) {
-        if (prevDescriptor == next) {
-          baseDescArray[index].DESCADDR.bit.DESCADDR 
-            = (uintptr_t)(&baseDescArray[index]);
-        } else {
-          prevDescriptor->DESCADDR.bit.DESCADDR 
-            = (uintptr_t)(&baseDescArray[index]);
-        }
-      }
-      delete next;
-    } else {
-      memset(&baseDescArray[index], 0, sizeof(DmacDescriptor));        
-    }   
-  } else {
-    if (prevDescriptor) {
-      prevDescriptor->DESCADDR.bit.DESCADDR = descriptor->DESCADDR.bit.DESCADDR;
-    }
-    delete descriptor;
-  }
-}
+
+// transferDescriptor::~transferDescriptor() {
+//   if (descriptor == &baseDescArray[index]) {
+//     if (descriptor->DESCADDR.bit.DESCADDR) {
+//       DmacDescriptor *next = (DmacDescriptor*)descriptor->DESCADDR.bit.DESCADDR;
+//       memcpy(&baseDescArray[index], next, sizeof(DmacDescriptor));
+//       if (prevDescriptor) {
+//         if (prevDescriptor == next) {
+//           baseDescArray[index].DESCADDR.bit.DESCADDR 
+//             = (uintptr_t)(&baseDescArray[index]);
+//         } else {
+//           prevDescriptor->DESCADDR.bit.DESCADDR 
+//             = (uintptr_t)(&baseDescArray[index]);
+//         }
+//       }
+//       delete next;
+//     } else {
+//       memset(&baseDescArray[index], 0, sizeof(DmacDescriptor));        
+//     }   
+//   } else {
+//     if (prevDescriptor) {
+//       prevDescriptor->DESCADDR.bit.DESCADDR = descriptor->DESCADDR.bit.DESCADDR;
+//     }
+//     delete descriptor;
+//   }
+// }
+
 */
-
-
-
-
-
 
 
 

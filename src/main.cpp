@@ -1,11 +1,9 @@
 #include <Arduino.h>
+#include "peripheral_core/hardware_type.h"
 
 
 void setup() {
-  Serial.begin(1);
-  while(!Serial);
 
-  Serial.println("_CONNECTED_");
 
   // Add code here
 

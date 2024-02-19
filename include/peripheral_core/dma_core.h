@@ -1,3 +1,5 @@
+
+/*
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// FILE: DMA 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -196,6 +198,11 @@ typedef struct transferDescriptor {
     _multi_(transferDescriptor, increment);
   }incrementSrc{this, 0}, incrementDest{this, 1};
 
+  template<int T>
+  void value() {
+
+  }
+  
   struct dataSize {
     inline bool operator = (const int&);
     inline operator int() const;
@@ -339,6 +346,7 @@ enum TRIGGER_SOURCE {
   TRIGGER_QSPI_TX           = 84
 };
 
+*/
 
 
 
