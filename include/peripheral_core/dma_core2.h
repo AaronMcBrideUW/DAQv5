@@ -1,464 +1,262 @@
 
 #pragma once
-#include <functional>
-#include <type_traits>
+#include <peripheral_core/core_util.h>
+#include <initializer_list>
+#include <sam.h>
+#include <string.h>
 
-namespace dma {
 
-  enum class ERROR_TYPE {
+#define DMA_IRQ_COUNT 5
+#define DMA_PRILVL_COUNT 4
+#define DMA_IRQPRI_MAX 5 
+#define DMA_QOS_MAX 3
 
+namespace core {
+
+  class transferDescriptor;
+
+  struct dma {
+
+    typedef void (*transferCallbackType)(int channelIndex);
+    typedef void (*errorCallbackType)(int channelIndex, enum ERROR_TYPE);  
+
+    enum CHANNEL_STATE : int;
+    enum CHANNEL_ERROR : int;
+    enum TRIGGER_SOURCE : int;
+    enum TRANSFER_TYPE : int;
+
+    struct configGroup {
+
+      constexpr static int irqPriority = 1;
+      constexpr static int prilvl_service_qual[DMA_PRILVL_COUNT] = {2};
+      constexpr static bool prilvl_rr_mode[DMA_PRILVL_COUNT] = {false};
+      constexpr static bool prilvl_enabled[DMA_PRILVL_COUNT] = {false};
+      constexpr static bool chRunStandby[DMAC_CH_NUM] = {false};
+      constexpr static int chPrilvl[DMAC_CH_NUM] = {2};
+    
+    }config;
+
+    struct ctrlGroup {      
+
+      static inline bool init(const bool&); // DONE
+      static inline bool init();
+
+      static inline bool enabled(const bool&); // DONE
+      static inline bool enabled();
+
+      static inline bool errorCallback(errorCallbackType&); // DONE
+      static inline bool errorCallback();
+
+      static inline bool transferCallback(transferCallbackType&); // DONE
+      static inline bool transferCallback();
+
+    }ctrl;
+
+
+    struct activeChannelGroup {
+
+      static inline int remainingBytes(); // DONE
+
+      static inline int index(); // DONE
+
+      static inline bool isBusy(); // DONE
+
+    }activeChannel;
+
+
+    struct channelGroup {
+      const int index;
+
+      inline bool init(const bool&); // DONE
+      inline bool init();
+
+      inline bool state(const CHANNEL_STATE&); // DONE
+      inline CHANNEL_STATE state();
+
+      inline bool descriptor(transferDescriptor);
+
+      inline CHANNEL_ERROR error(); // DONE
+
+      inline bool triggerSource(const TRIGGER_SOURCE&); // DONE
+      inline TRIGGER_SOURCE triggerSource();
+
+      inline bool transferType(const TRANSFER_TYPE&); // DONE
+      inline TRANSFER_TYPE transferType();
+
+      inline bool burstThreshold(const int&); // DONE
+      inline int burstThreshold();
+
+      struct lastTransfer {
+
+        // TO DO...
+
+      }lastTransfer;
+
+    }channel[DMAC_CH_NUM]{{.index = init_seq(channel, 0, 1)}};
+
+
+    typedef class transferDescriptor {
+      friend dma::channelGroup;
+
+      bool source(const void*);
+      bool source(const volatile void*);
+      void* source();
+
+      bool destination(const void*);
+      bool destination(const volatile void*);
+      void* destination();
+
+      bool sourceIncrement(const int&);
+      int sourceIncrement();
+
+      bool destIncrement(const int&);
+      int destIncrement();
+
+      bool transferCount(const int&);
+      int transferCount();
+
+      bool dataSize(const int&);
+      int dataSize();
+
+      bool suspendMode(const bool&);
+      bool suspendMode();
+
+      bool valid(const bool&);
+      bool valid();
+
+      protected:
+        uintptr_t sourceAddr;
+        uintptr_t destAddr;
+        DmacDescriptor desc;
+    };
+
+  }dma;
+
+
+  enum dma::CHANNEL_ERROR {
+    ERROR_NONE,
+    ERROR_CRC,
+    ERROR_DESC,
+    ERROR_TRANSFER
   };
 
-  typedef void (&transferCallbackType)(int channelIndex);
-  typedef void (&errorCallbackType)(int channelIndex, enum ERROR_TYPE); 
-
-
-  namespace sys {
-    inline bool enabled(bool);
-    inline bool enabled();
-
-    inline bool errorCallback(errorCallbackType);
-    inline errorCallbackType errorCallback(void);
-
-    inline bool transferCallback(transferCallbackType);
-    inline transferCallbackType transferCallback(void);
-
+  enum dma::CHANNEL_STATE {
+    STATE_DISABLED,
+    STATE_IDLE,
+    STATE_SUSPENDED,
+    STATE_ACTIVE
   };
 
-};
+  enum dma::TRANSFER_TYPE {
+    ACTION_TRANSFER_BLOCK = 0,
+    ACTION_TRANSFER_BURST = 2,
+    ACTION_TRANSFER_ALL   = 3
+  };
 
-//////////////////////////// MISC ///////////////////////////////
-
-#define _UNIQUE_GET_T_(_name_) val_t (&_name_)(void)
-#define _UNIQUE_SET_T_(_name_) bool  (&_name_)(const val_t&)
-#define _SHARED_GET_T_(_name_) val_t (&_name_)(const val_t&, const int&)
-#define _SHARED_SET_T_(_name_) bool  (&_name_)(const int&)
-
-#define PROP_MAX_ADDARGS 12
-
-/// @internal Removes type modifiers 
-template<typename T> ///////////////////// NOTE -> NEEDS TO BE IMPLEMENTED!!!!
-struct _BaseType_ { 
-  typedef std::remove_cv<std::remove_reference
-    <std::remove_pointer<T>::type>::type>::type type;
-};
-
-/// @internal Custom type_info structs for validating property types 
-template<typename T>
-struct _IsBasic_ {
-  static const bool value = std::is_integral<T>::value; // TO DO
-};
-template<typename T>
-struct _IsEnum_ {
-  static const bool value = std::is_enum<T>::value; // TO DO
-};
-template<typename T>
-struct _IsPointer_ {
-  static const bool value = std::is_pointer<T>::value; // TO DO
-};
-template<typename T>
-struct _IsAddr_ {
-  static const bool value = std::is_void<T>::value;
-};
-
-/// @internal Determines if template func param is of shared type
-template<typename val_t, int val, typename get_t,typename set_t> 
-struct _IsShared_ {
-  static_assert("Property is Ill-Formed: Invalid function types.");
-};
-template<typename val_t, int val> 
-struct _IsShared_<val_t, val, val_t (&)(void), void> {
-  typedef std::false_type value;
-  static const int num = -1;
-};
-template<typename val_t, int val>
-struct _IsShared_<val_t, val, val_t (&)(const int&), void> {
-  typedef std::true_type value;
-  static const int num = val;
-};
-template<typename val_t, int val>
-struct _IsShared_<val_t, val, val_t (&)(void), bool (&)(const val_t&)> {
-  typedef std::false_type value;
-  static const int num = -1;
-};
-template<typename val_t, int val>
-struct _IsShared_<val_t, val, val_t (&)(const int&), 
-  bool (&)(const val_t&, const int&)> {
-  typedef std::true_type value;
-  static const int num = val;
-};
-
-/// @internal Unpacks tupple recursively
-template<size_t N>
-struct _ApplyFunctr_ {
-  template<typename func_t, typename tup_t, typename... A>
-  static inline auto _apply_(func_t && f, tup_t && t, A &&... a)
-    -> decltype(_ApplyFunctr_<N-1>::_apply_(std::forward<func_t>(f), 
-      std::forward<tup_t>(t), std::get<N-1>(std::forward<tup_t>(t)), 
-      std::forward<A>(a)...)) {
-
-    return _ApplyFunctr_<N-1>::_apply_(std::forward<func_t>(f), 
-      std::forward<tup_t>(t), std::get<N-1>(std::forward<tup_t>(t)), 
-      std::forward<A>(a)...);
-  }
-};
-/// @internal Base case for tuple unpacking recursion.
-template<>
-struct _ApplyFunctr_<0> {
-  template<typename func_t, typename tup_t, typename... A>
-  static inline auto _apply_(func_t && f, tup_t &&, A &&... a) 
-    -> decltype(std::forward<func_t>(f)(std::forward<A>(a)...)) {
-    return std::forward<func_t>(f)(std::forward<A>(a)...); 
-  }
-};
-/// @internal "Public pair" for initiating application/unpacking of tuple 
-///   into method call
-template<typename func_t, typename tup_t>
-inline auto _apply_(func_t && f, tup_t && t)
-  -> decltype(_ApplyFunctr_<std::tuple_size<typename std::decay<tup_t>::type>
-    ::value>::_apply_(std::forward<func_t>(f), std::forward<tup_t>(t))) {
-
-  return _ApplyFunctr_<std::tuple_size<typename std::decay<tup_t>::type>
-    ::value>::_apply_(std::forward<func_t>(f), std::forward<tup_t>(t));
+  enum dma::TRIGGER_SOURCE {
+    TRIGGER_SOFTWARE          = 0,
+    TRIGGER_RTC_TIMESTAMP     = 1,
+    TRIGGER_DSU_DCC0          = 2,
+    TRIGGER_DSU_DCC1          = 3,
+    TRIGGER_SERCOM0_RX        = 4,
+    TRIGGER_SERCOM0_TX        = 5,
+    TRIGGER_SERCOM1_RX        = 6,
+    TRIGGER_SERCOM1_TX        = 7,
+    TRIGGER_SERCOM2_RX        = 8,
+    TRIGGER_SERCOM2_TX        = 9,
+    TRIGGER_SERCOM3_RX        = 10,
+    TRIGGER_SERCOM3_TX        = 11,
+    TRIGGER_SERCOM4_RX        = 12,
+    TRIGGER_SERCOM4_TX        = 13,
+    TRIGGER_SERCOM5_RX        = 14,
+    TRIGGER_SERCOM5_TX        = 15,
+    TRIGGER_SERCOM6_RX        = 16,
+    TRIGGER_SERCOM6_TX        = 17,
+    TRIGGER_SERCOM7_RX        = 18,
+    TRIGGER_SERCOM7_TX        = 19,
+    TRIGGER_CAN0_DEBUG_REQ    = 20,
+    TRIGGER_CAN1_DEBUG_REQ    = 21,
+    TRIGGER_TCC0_OOB          = 22,
+    TRIGGER_TCC0_COMPARE_0    = 23,
+    TRIGGER_TCC0_COMPARE_1    = 24,
+    TRIGGER_TCC0_COMPARE_2    = 25,
+    TRIGGER_TCC0_COMPARE_3    = 26,
+    TRIGGER_TCC0_COMPARE_4    = 27,
+    TRIGGER_TCC0_COMPARE_5    = 28,
+    TRIGGER_TCC1_OOB          = 29,
+    TRIGGER_TCC1_COMPARE_0    = 30,
+    TRIGGER_TCC1_COMPARE_1    = 31,
+    TRIGGER_TCC1_COMPARE_2    = 32,
+    TRIGGER_TCC1_COMPARE_3    = 33,
+    TRIGGER_TCC2_OOB          = 34,
+    TRIGGER_TCC2_COMPARE_0    = 35,
+    TRIGGER_TCC2_COMPARE_1    = 36,
+    TRIGGER_TCC2_COMPARE_2    = 37,
+    TRIGGER_TCC3_OOB          = 38,
+    TRIGGER_TCC3_COMPARE_0    = 39,
+    TRIGGER_TCC3_COMPARE_1    = 40,
+    TRIGGER_TCC4_OOB          = 41,
+    TRIGGER_TCC4_COMPARE_0    = 42,
+    TRIGGER_TCC4_COMPARE_1    = 43,
+    TRIGGER_TC0_OOB           = 44,
+    TRIGGER_TC0_COMPARE_0     = 45,
+    TRIGGER_TC0_COMPARE_1     = 46,
+    TRIGGER_TC1_OOB           = 47,
+    TRIGGER_TC1_COMPARE_0     = 48,
+    TRIGGER_TC1_COMPARE_1     = 49,
+    TRIGGER_TC2_OOB           = 50,
+    TRIGGER_TC2_COMPARE_0     = 51,
+    TRIGGER_TC2_COMPARE_1     = 52,
+    TRIGGER_TC3_OOB           = 53,
+    TRIGGER_TC3_COMPARE_0     = 54,
+    TRIGGER_TC3_COMPARE_1     = 55,
+    TRIGGER_TC4_OOB           = 56,
+    TRIGGER_TC4_COMPARE_0     = 57,
+    TRIGGER_TC4_COMPARE_1     = 58,
+    TRIGGER_TC5_OOB           = 59,
+    TRIGGER_TC5_COMPARE_0     = 60,
+    TRIGGER_TC5_COMPARE_1     = 61,
+    TRIGGER_TC6_OOB           = 62,
+    TRIGGER_TC6_COMPARE_0     = 63,
+    TRIGGER_TC6_COMPARE_1     = 64,
+    TRIGGER_TC7_OOB           = 65,
+    TRIGGER_TC7_COMPARE_0     = 66,
+    TRIGGER_TC7_COMPARE_1     = 67,
+    TRIGGER_ADC0_RESRDY       = 68,
+    TRIGGER_ADC0_SEQ          = 69,
+    TRIGGER_ADC1_RESRDY       = 70,
+    TRIGGER_ADC1_SEQ          = 71,
+    TRIGGER_DAC_EMPTY0        = 72,
+    TRIGGER_DAC_EMPTY1        = 73,
+    TRIGGER_DAC_RESULT_READY0 = 74,
+    TRIGGER_DAC_RESULT_READY1 = 75,
+    TRIGGER_I2S_RX0           = 76,
+    TRIGGER_I2S_RX1           = 77,
+    TRIGGER_I2S_TX0           = 78,
+    TRIGGER_I2S_TX1           = 79,
+    TRIGGER_PCC_RX            = 80,
+    TRIGGER_AES_WRITE         = 81,
+    TRIGGER_AES_READ          = 82,
+    TRIGGER_QSPI_RX           = 83,
+    TRIGGER_QSPI_TX           = 84
+  };
 }
 
-/////////////////// PROPERTY OPERATORS ///////////////////////
-
-/// @internal Base template for property base struct 
-template<class deriv_t, typename val_t, typename impl = std::nullptr_t>
-struct _PropBase_ {
-  static_assert("Property is ill-formed: Invalid value type");
-};
-
-
-/// @brief Contains operators for numeric (incl. bool) type properties.
-template<class deriv_t, typename val_t> 
-struct _PropBase_<deriv_t, val_t, typename std::conditional
-  <_IsBasic_<val_t>::value, val_t, std::nullptr_t>::type>  {
-
-  /// @brief Value type of property
-  typedef val_t type;
-    
-  /// @brief Assignment operators, returns true only if 
-  ///   assignment is successful.
-  inline bool operator = (val_t &&value) {
-    return prop->set(std::forward<val_t>(value));
-  }
-  inline bool operator = (const val_t &value) {
-    return prop->set(value);
-  }
-  template<typename val_to, typename get_to, typename set_to>
-  bool operator = (Property<val_to, get_to, set_to, void> &other) { /////////// WRONG
-    if (other == *prop) {
-      return false;
-    } else if (std::is_same<val_t, val_to>::value) {
-      return prop->set(other.get());
-    
-    } else if (std::is_convertible<other::type, type>::value 
-        || std::is_enum<other::type>::value) {
-      return prop->set(static_cast<val_t>(other.get())); /// THERE HAS TO BE SAFER WAY....
-    } 
-    return false;
-  }
-  /// @brief Cast operator to primary value type.
-  inline bool operator val_t() {
-    return get();
-  }
-  protected:
-    static deriv_t prop = static_cast<deriv_t*>(this);
-};
-
-
-/// @brief Contains operators for enum type properties
-template<class deriv_t, typename val_t> 
-struct _PropBase_<deriv_t, val_t, typename std::conditional 
-  <_IsEnum_<val_t>::value, val_t, std::nullptr_t>::type> {
-
-  /// @brief Property types 
-  typedef val_t type;
-
-  /// @brief Assignment operators (set) for enum, int & property type
-  bool operator = (val_t &&value) {
-    return prop->set(std::forward<val_t>(value));
-  }
-  bool operator = (const val_t &value) {
-    return prop->set(value);
-  }
-  bool operator = (typename std::underlying_type<val_t>::type &value) {
-    return prop->set(static_cast<val_t>(value));
-  }
-  template<typename val_to, typename get_to, typename set_to>
-  bool operator = (Property<val_to, get_to, set_to, void> &other) {
-    if (other == *prop) {
-      return false;
-    } else if (_IsEnum_<typename other::type>::value 
-      || std::is_integral<typename other::type>::value) {
-      prop->set((val_t)other.get());
-    }
-    return false;
-  }
-  /// @brief Cast operators (get) for enum & int type
-  operator val_t() const {
-    return prop->get();
-  }
-  explicit operator typename std::underlying_type<val_t>::type() const {
-    return static_cast<typename std::underlying_type<val_t>::type>(prop->get());
-  }
-  protected:
-    static deriv_t prop = static_cast<deriv_t*>(this);
-};
-
-/// @brief Contains operators for property of pointer type 
-template<class deriv_t, typename val_t> 
-struct _PropBase_<deriv_t, val_t, typename std::conditional 
-  <_IsPointer_<val_t>::value, val_t, std::nullptr_t>::type> {
-
-  /// @brief Type of property (underlying)
-  typedef val_t type;
-
-  constexpr _PropBase_(const bool ownPtr) : ownPtr(ownPtr), 
-    ptr(nullptr);
-
-  bool operator = (const val_t &*ptr) {
-    bool result = prop->set(std::move(ptr));
-    if (ownPtr) {
-      ptr = nullptr;
-    }
-  };
-  
-
-  protected:
-    const bool ownPtr;
-    static deriv_t prop = static_cast<deriv_t*>(this);
-};
-
-
-/////////////////// PROPERTY TEMPLATES ///////////////////////
-
-/// @brief Base property template & template for variadic 
-///   shared/unshared ("indexed") properties.
-template<typename val_t, typename get_t, typename set_t, typename ...arg_t>
-struct Property : public _PropBase_<val_t, get_t, set_t> {
-
-  static_assert(sizeof(arg_t...) < PROP_MAX_ADDARGS, "Property is Ill-Formed" 
-    + "Too many additional arguments");
-
-  template<typename ...arg_t>
-  Property(get_t getFunc, set_t setFunc, arg_t... args)
-    : argTup(std::make_tuple(args...)), getSrc(getFunc), setSrc(setFunc) 
-      index(_IsShared_<val_t, prevIndex, get_t, set_t>::num) {
-
-    if (_IsShared_<val_t, get_t, set_t>) {
-      index = prevIndex++;
-    }
-  };       
-  template<typename ...arg_t>
-  Property(get_t getFunc, arg_t... args)
-    : argTup(std::make_tuple(args...)), getSrc(getFunc), setSrc(dummySet),
-      index(_IsShared_<val_t, prevIndex, get_t, set_t>::num) {
-        
-    if (_IsShared_<val_t, get_t, set_t>) {
-      prevIndex++;
-    }
-  };
-  protected:
-    val_t get() {
-      if (index == -1) {
-        _apply_(&getSrc, &getTup);
-      }
-      auto targTup = std::tuple_cat<std::make_tuple<const int&>(val_t{}), getTup>;
-      return _apply_(&getSrc, &targTup);
-    }
-    bool set(val_t &&value) {
-      if (index == -1) {
-        return _apply_(&setSrc, &argTup);
-      }
-      auto targTup = std::tuple_cat<std::make_tuple<const val_t&, 
-        const &int>(std::forward(value), index), setTup>;
-      return _apply_(&setSrc, &targTup);
-    }
-    bool dummySet(const val_t&, arg_t...);
-    static std::tuple<arg_t...> argTup; 
-
-    const int index;
-    static int index prev;
-    static get_t getSrc;
-    static set_t setSrc;
-};
-
-/// @brief Property specialization for unique read/write functions
-template<typename val_t>
-struct Property<val_t, _UNIQUE_GET_T_(), _UNIQUE_SET_T_(), void> 
-  : public _PropBase_<Property<val_t, _UNIQUE_GET_T_(), 
-  _UNIQUE_SET_T_(), void>, val_t> {
-
-  constexpr Property(_UNIQUE_GET_T_(getFunc), _UNIQUE_SET_T_(setFunc)) 
-    : get(getFunc), set(setFunc) {}
-  constexpr Property(_UNIQUE_GET_T_(getFunc)) : get(getFunc), set(&dummySet);
-
-  protected:
-    bool dummySet(const val_t&);
-    friend _PropBase_<Property<val_t, _UNIQUE_GET_T_(), 
-    _UNIQUE_SET_T_(), void>, val_t>;
-
-    _UNIQUE_GET_T_(get);
-    _UNIQUE_SET_T_(set);
-};
-
-/// @brief Property specialization for shared ("indexed") properties
-template<typename val_t>
-struct Property<val_t, _SHARED_GET_T_(), _SHARED_SET_T_(), void> 
-  : public _PropBase_<Property<val_t, _SHARED_GET_T_(), 
-  _SHARED_SET_T_(), void>, val_t>{
-
-  constexpr Property(_SHARED_GET_T_(getFunc), _SHARED_SET_T_(setFunc))
-    : index(prevIndex), get(getFunc), set(setFunc) {
-    prevIndex++;
-  }
-  constexpr Property(_SHARED_GET_T_(getFunc))
-    : index(prevIndex), get(getFunc), set(&dummySet) {
-    prevIndex++;
-  }
-  protected:
-    val_t get() {
-      return getSrc(index);
-    }
-    bool set(val_t &&value) {
-      return setSrc(std::forward<val_t>(value), index);
-    }
-    friend _PropBase_<Property<val_t, _SHARED_GET_T_(), 
-      _UNIQUE_GET_T_(), void>, val_t>;
-    bool dummySet(const val_t&, const int&);
-
-    const int index;
-    static int prevIndex;
-    static _SHARED_GET_T_(getSrc);
-    static _SHARED_SET_T_(setSrc);
-};
 
 
 
 
 
 
-/*
 
-typedef struct sys{
 
-  // More to do -> init() method??
 
-  struct enabled{ 
-    inline operator bool();
-    void operator = (const bool);
-  }enabled;
-
-  struct errorCallback{
-    inline operator errorCBType(); 
-    inline operator bool();
-    inline void operator = (const errorCBType);
-  }errorCallback;
-
-  struct transferCallback{
-    inline operator transferCBType();
-    inline operator bool();
-    inline void operator = (const transferCBType);
-  }transferCallback;
-
-};
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-//// SECTION: ACTIVE CHANNEL MODULE
-///////////////////////////////////////////////////////////////////////////////////////////////////
-
-typedef struct activeChannel {
-
-  struct remainingBytes{
-    inline operator int();
-  }remainingBytes;
-
-  struct index{
-    inline operator int();
-  }index;
-
-  struct busy{
-    inline operator bool();
-  }busy;
-
-};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //// SECTION: CHANNEL MODULE
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-typedef struct channel { // Rename to channel ctrl
-  channel(const int &index):index(index) {};
-  const int &index;
-
-
-  struct descriptorList {
-    void operator = (std::initializer_list<transferDescriptor&>);
-    transferDescriptor operator[] (const int&);  
-    _super_(channel, descriptorList);
-  }descriptorList{this};
-
-  struct state {
-    bool operator = (const CHANNEL_STATE&);
-    inline operator CHANNEL_STATE();
-    inline bool operator == (const CHANNEL_STATE);
-    _super_(channel, state);
-  }state{this};
-
-  struct error {
-    inline operator CHANNEL_ERROR();
-    inline operator bool();
-    inline bool operator == (const CHANNEL_ERROR&);
-    _super_(channel, error);
-  }error{this};
-
-};
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-//// SECTION: CHANNEL CONFIG MODULE
-///////////////////////////////////////////////////////////////////////////////////////////////////
-
-struct channelConfig {
-  explicit channelConfig(const int index):index(index) {};
-  const int &index;
-
-  /// @brief Sets the trigger source of the channel.
-  /// @param  operator_equals Sets value & does not return. ENUM -> ACTION_...
-  /// @param  cast_enum Returns current value.
-  struct triggerSource { 
-    inline void operator = (const TRIGGER_SOURCE&);
-    inline operator TRIGGER_SOURCE();
-    _super_(channelConfig, triggerSource);
-  }triggerSrc{this};
-
-  /// @brief  Specifies action taken when channel is triggered.
-  /// @param  operator_equals Sets value & does not return. ENUM -> TRIGGER_...
-  /// @param  cast_enum Returns current value.
-  struct triggerAction { 
-    inline void operator = (const TRIGGER_ACTION&);
-    inline operator TRIGGER_ACTION();
-    _super_(channelConfig, triggerAction);
-  }triggerAction{this};
-
-
-  /// @brief Number of values sent per burst (smallest transfer increment).
-  /// @param operator_equals Sets quantity & returns true only if quantity is valid.
-  /// @param cast_int Returns current quantity.
-  struct burstThreshold { 
-    inline bool operator = (const int&);
-    inline operator int();
-    _super_(channelConfig, burstThreshold);
-  }burstThreshold{this};
-
-};
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-//// SECTION: TRANSFER DESCRIPTOR MODULE
-///////////////////////////////////////////////////////////////////////////////////////////////////
-
+/*
 typedef struct transferDescriptor { 
   friend channel; 
   transferDescriptor();

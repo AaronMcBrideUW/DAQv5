@@ -282,16 +282,7 @@ void transferDescriptor::operator = (const transferDescriptor &other) {
 
 //// TRANSFER SOURCE
 bool transferDescriptor::addr::operator = (const void *ptr) {
-  uintptr_t address = (uintptr_t)ptr;
-  if (ptr && address != DMAC_SRCADDR_RESETVALUE) {
-    return false;
-  }
-  if (type == 0) {
-    super->descriptor->SRCADDR.bit.SRCADDR = address;
-  } else {
-    super->descriptor->DSTADDR.bit.DSTADDR = address;
-  }
-  return true; 
+                                                                                                                                                                                                                                                                                                                                                                 
 }
 transferDescriptor::addr::operator void*() const {
   uintptr_t address = (uintptr_t)(*this);
