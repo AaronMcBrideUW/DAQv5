@@ -1,9 +1,11 @@
+        void replaceTask();
 
 #pragma once
 #include <peripheral_core/core_util.h>
-#include <initializer_list>
+#include <type_traits>
 #include <sam.h>
 #include <string.h>
+#include <initializer_list>
 
 
 #define DMA_IRQ_COUNT 5
@@ -11,9 +13,12 @@
 #define DMA_IRQPRI_MAX 5 
 #define DMA_QOS_MAX 3
 
+#define _setDesc_(_arrSize_, _isSrc_) return setDesc_((void*)ptr, \ 
+sizeof(T), std::is_volatile<T>::value, _arrSize_, _isSrc_);
+
 namespace core {
 
-  class transferDescriptor;
+  class channelTask;
 
   struct dma {
 
@@ -22,8 +27,17 @@ namespace core {
 
     enum CHANNEL_STATE : int;
     enum CHANNEL_ERROR : int;
-    enum TRIGGER_SOURCE : int;
-    enum TRANSFER_TYPE : int;
+    enum PERIPHERAL_LINK : int;
+    enum TRANSFER_MODE : int;
+    enum CRC_MODE : int;
+    enum CRC_STATUS : int;
+
+    struct configGroup;
+    struct ctrlGroup;
+    struct activeChannelGroup;
+    struct crcGroup;
+    struct channelGroup;
+    class taskDescriptor;
 
     struct configGroup {
 
@@ -33,7 +47,7 @@ namespace core {
       constexpr static bool prilvl_enabled[DMA_PRILVL_COUNT] = {false};
       constexpr static bool chRunStandby[DMAC_CH_NUM] = {false};
       constexpr static int chPrilvl[DMAC_CH_NUM] = {2};
-    
+
     }config;
 
     struct ctrlGroup {      
@@ -59,79 +73,121 @@ namespace core {
 
       static inline int index(); // DONE
 
-      static inline bool isBusy(); // DONE
+      static inline bool busy(); // DONE
 
     }activeChannel;
 
 
+    struct crcGroup {
+
+      static inline bool inputChannel(const int&);
+      static inline int inputChannel();
+
+      static inline bool mode(const CRC_MODE&);
+      static inline CRC_MODE mode();
+
+      static inline CRC_STATUS status();
+
+      /// @brief Set as address of task to input/output data
+      ///        to the CRC module.
+      static struct {}CRC_INPUT;
+      static struct {}CRC_OUTPUT;
+
+    }crc;
+
+
     struct channelGroup {
+
       const int index;
 
       inline bool init(const bool&); // DONE
-      inline bool init();
+      inline bool init() const;
 
       inline bool state(const CHANNEL_STATE&); // DONE
-      inline CHANNEL_STATE state();
+      inline CHANNEL_STATE state() const;
+      
+      inline bool linkedPeripheral(const PERIPHERAL_LINK&); // DONE
+      inline PERIPHERAL_LINK linkedPeripheral() const;
 
-      inline bool descriptor(transferDescriptor);
+      inline bool transferMode(const TRANSFER_MODE&); // DONE
+      inline TRANSFER_MODE transferMode() const;
 
-      inline CHANNEL_ERROR error(); // DONE
+      inline CHANNEL_ERROR error() const; // DONE
 
-      inline bool triggerSource(const TRIGGER_SOURCE&); // DONE
-      inline TRIGGER_SOURCE triggerSource();
+      inline dma::taskDescriptor writebackDescriptor(); // DONE
 
-      inline bool transferType(const TRANSFER_TYPE&); // DONE
-      inline TRANSFER_TYPE transferType();
+      bool setTasks(std::initializer_list<taskDescriptor&>); // DONE
+      bool addTask(const int&, dma::taskDescriptor&);
+      dma::taskDescriptor &removeTask(const int&);
+      dma::taskDescriptor &getTask(const int&);
 
-      inline bool burstThreshold(const int&); // DONE
-      inline int burstThreshold();
-
-      struct lastTransfer {
-
-        // TO DO...
-
-      }lastTransfer;
+      int taskCount();  // DONE
+      bool clearTasks();
 
     }channel[DMAC_CH_NUM]{{.index = init_seq(channel, 0, 1)}};
 
 
-    typedef class transferDescriptor {
-      friend dma::channelGroup;
+    class taskDescriptor {
+      taskDescriptor();
+      taskDescriptor(DmacDescriptor*);
+      taskDescriptor(const taskDescriptor&); // DONE
 
-      bool source(const void*);
-      bool source(const volatile void*);
-      void* source();
+      taskDescriptor operator = (const taskDescriptor&); // DONE
+      explicit operator DmacDescriptor*();
+      operator bool() const;
 
-      bool destination(const void*);
-      bool destination(const volatile void*);
-      void* destination();
+      template<typename T>
+      bool source(const T *ptr) { _setDesc_(1, true); } // DONE
+      template<typename T, size_t N>
+      bool source(const T (*ptr)[N]) { _setDesc_(N, true); }
+      inline void *source() const;
 
-      bool sourceIncrement(const int&);
-      int sourceIncrement();
+      template<typename T>
+      bool destination(const T *ptr) { _setDesc_(1, false); } // DONE
+      template<typename T, size_t N>
+      bool destination(const T (*)[N]) { _setDesc_(N, false); }
+      inline void *destination() const;
 
-      bool destIncrement(const int&);
-      int destIncrement();
+      inline bool enabled(const bool&); // DONE
+      inline bool enabled() const;
 
-      bool transferCount(const int&);
-      int transferCount();
+      bool length(const int&); // DONE
+      int length() const;
 
-      bool dataSize(const int&);
-      int dataSize();
+      inline bool suspendChannel(const bool&); // DONE
+      inline bool suspendChannel() const;
 
-      bool suspendMode(const bool&);
-      bool suspendMode();
+      inline dma::taskDescriptor &linkedTask(); // DONE
+      inline int assignedChannel();
+       
+      inline void reset();
 
-      bool valid(const bool&);
-      bool valid();
+      ~taskDescriptor(); // DONE ///////// NEED TO ADD BETTER HANDLEING HERE...
 
-      protected:
-        uintptr_t sourceAddr;
-        uintptr_t destAddr;
-        DmacDescriptor desc;
+      private:
+        friend channelGroup;
+        bool setDesc_(const void*, const int&, const bool&, 
+          const int&, const bool&);
+        bool alloc;
+        int srcAlign, destAlign, assignedCh;
+        DmacDescriptor *desc;
+        taskDescriptor *linked;
     };
+    
 
   }dma;
 
+  enum dma::CRC_STATUS {
+    CRC_DISABLED,
+    CRC_IDLE,
+    CRC_BUSY,
+    CRC_ERROR
+  };
+
+  enum dma::CRC_MODE {
+    CRC_TYPE_16,
+    CRC_TYPE_32,
+  };
 
   enum dma::CHANNEL_ERROR {
     ERROR_NONE,
@@ -147,101 +203,105 @@ namespace core {
     STATE_ACTIVE
   };
 
-  enum dma::TRANSFER_TYPE {
-    ACTION_TRANSFER_BLOCK = 0,
-    ACTION_TRANSFER_BURST = 2,
-    ACTION_TRANSFER_ALL   = 3
+  enum dma::TRANSFER_MODE { 
+    MODE_TRANSFER_1VALUE  = 1,
+    MODE_TRANSFER_2VALUE  = 2,
+    MODE_TRANSFER_4VALUE  = 4,
+    MODE_TRANSFER_8VALUE  = 8,
+    MODE_TRANSFER_12VALUE = 12,
+    MODE_TRANSFER_16VALUE = 16, 
+    MODE_TRANSFER_TASK    = 17,  
+    MODE_TRANSFER_ALL     = 18,   
   };
 
-  enum dma::TRIGGER_SOURCE {
-    TRIGGER_SOFTWARE          = 0,
-    TRIGGER_RTC_TIMESTAMP     = 1,
-    TRIGGER_DSU_DCC0          = 2,
-    TRIGGER_DSU_DCC1          = 3,
-    TRIGGER_SERCOM0_RX        = 4,
-    TRIGGER_SERCOM0_TX        = 5,
-    TRIGGER_SERCOM1_RX        = 6,
-    TRIGGER_SERCOM1_TX        = 7,
-    TRIGGER_SERCOM2_RX        = 8,
-    TRIGGER_SERCOM2_TX        = 9,
-    TRIGGER_SERCOM3_RX        = 10,
-    TRIGGER_SERCOM3_TX        = 11,
-    TRIGGER_SERCOM4_RX        = 12,
-    TRIGGER_SERCOM4_TX        = 13,
-    TRIGGER_SERCOM5_RX        = 14,
-    TRIGGER_SERCOM5_TX        = 15,
-    TRIGGER_SERCOM6_RX        = 16,
-    TRIGGER_SERCOM6_TX        = 17,
-    TRIGGER_SERCOM7_RX        = 18,
-    TRIGGER_SERCOM7_TX        = 19,
-    TRIGGER_CAN0_DEBUG_REQ    = 20,
-    TRIGGER_CAN1_DEBUG_REQ    = 21,
-    TRIGGER_TCC0_OOB          = 22,
-    TRIGGER_TCC0_COMPARE_0    = 23,
-    TRIGGER_TCC0_COMPARE_1    = 24,
-    TRIGGER_TCC0_COMPARE_2    = 25,
-    TRIGGER_TCC0_COMPARE_3    = 26,
-    TRIGGER_TCC0_COMPARE_4    = 27,
-    TRIGGER_TCC0_COMPARE_5    = 28,
-    TRIGGER_TCC1_OOB          = 29,
-    TRIGGER_TCC1_COMPARE_0    = 30,
-    TRIGGER_TCC1_COMPARE_1    = 31,
-    TRIGGER_TCC1_COMPARE_2    = 32,
-    TRIGGER_TCC1_COMPARE_3    = 33,
-    TRIGGER_TCC2_OOB          = 34,
-    TRIGGER_TCC2_COMPARE_0    = 35,
-    TRIGGER_TCC2_COMPARE_1    = 36,
-    TRIGGER_TCC2_COMPARE_2    = 37,
-    TRIGGER_TCC3_OOB          = 38,
-    TRIGGER_TCC3_COMPARE_0    = 39,
-    TRIGGER_TCC3_COMPARE_1    = 40,
-    TRIGGER_TCC4_OOB          = 41,
-    TRIGGER_TCC4_COMPARE_0    = 42,
-    TRIGGER_TCC4_COMPARE_1    = 43,
-    TRIGGER_TC0_OOB           = 44,
-    TRIGGER_TC0_COMPARE_0     = 45,
-    TRIGGER_TC0_COMPARE_1     = 46,
-    TRIGGER_TC1_OOB           = 47,
-    TRIGGER_TC1_COMPARE_0     = 48,
-    TRIGGER_TC1_COMPARE_1     = 49,
-    TRIGGER_TC2_OOB           = 50,
-    TRIGGER_TC2_COMPARE_0     = 51,
-    TRIGGER_TC2_COMPARE_1     = 52,
-    TRIGGER_TC3_OOB           = 53,
-    TRIGGER_TC3_COMPARE_0     = 54,
-    TRIGGER_TC3_COMPARE_1     = 55,
-    TRIGGER_TC4_OOB           = 56,
-    TRIGGER_TC4_COMPARE_0     = 57,
-    TRIGGER_TC4_COMPARE_1     = 58,
-    TRIGGER_TC5_OOB           = 59,
-    TRIGGER_TC5_COMPARE_0     = 60,
-    TRIGGER_TC5_COMPARE_1     = 61,
-    TRIGGER_TC6_OOB           = 62,
-    TRIGGER_TC6_COMPARE_0     = 63,
-    TRIGGER_TC6_COMPARE_1     = 64,
-    TRIGGER_TC7_OOB           = 65,
-    TRIGGER_TC7_COMPARE_0     = 66,
-    TRIGGER_TC7_COMPARE_1     = 67,
-    TRIGGER_ADC0_RESRDY       = 68,
-    TRIGGER_ADC0_SEQ          = 69,
-    TRIGGER_ADC1_RESRDY       = 70,
-    TRIGGER_ADC1_SEQ          = 71,
-    TRIGGER_DAC_EMPTY0        = 72,
-    TRIGGER_DAC_EMPTY1        = 73,
-    TRIGGER_DAC_RESULT_READY0 = 74,
-    TRIGGER_DAC_RESULT_READY1 = 75,
-    TRIGGER_I2S_RX0           = 76,
-    TRIGGER_I2S_RX1           = 77,
-    TRIGGER_I2S_TX0           = 78,
-    TRIGGER_I2S_TX1           = 79,
-    TRIGGER_PCC_RX            = 80,
-    TRIGGER_AES_WRITE         = 81,
-    TRIGGER_AES_READ          = 82,
-    TRIGGER_QSPI_RX           = 83,
-    TRIGGER_QSPI_TX           = 84
+  enum dma::PERIPHERAL_LINK {
+    LINK_NONE              = 0,
+    LINK_RTC_TIMESTAMP     = 1,
+    LINK_DSU_DCC0          = 2,
+    LINK_DSU_DCC1          = 3,
+    LINK_SERCOM0_RX        = 4,
+    LINK_SERCOM0_TX        = 5,
+    LINK_SERCOM1_RX        = 6,
+    LINK_SERCOM1_TX        = 7,
+    LINK_SERCOM2_RX        = 8,
+    LINK_SERCOM2_TX        = 9,
+    LINK_SERCOM3_RX        = 10,
+    LINK_SERCOM3_TX        = 11,
+    LINK_SERCOM4_RX        = 12,
+    LINK_SERCOM4_TX        = 13,
+    LINK_SERCOM5_RX        = 14,
+    LINK_SERCOM5_TX        = 15,
+    LINK_SERCOM6_RX        = 16,
+    LINK_SERCOM6_TX        = 17,
+    LINK_SERCOM7_RX        = 18,
+    LINK_SERCOM7_TX        = 19,
+    LINK_CAN0_DEBUG_REQ    = 20,
+    LINK_CAN1_DEBUG_REQ    = 21,
+    LINK_TCC0_OOB          = 22,
+    LINK_TCC0_COMPARE_0    = 23,
+    LINK_TCC0_COMPARE_1    = 24,
+    LINK_TCC0_COMPARE_2    = 25,
+    LINK_TCC0_COMPARE_3    = 26,
+    LINK_TCC0_COMPARE_4    = 27,
+    LINK_TCC0_COMPARE_5    = 28,
+    LINK_TCC1_OOB          = 29,
+    LINK_TCC1_COMPARE_0    = 30,
+    LINK_TCC1_COMPARE_1    = 31,
+    LINK_TCC1_COMPARE_2    = 32,
+    LINK_TCC1_COMPARE_3    = 33,
+    LINK_TCC2_OOB          = 34,
+    LINK_TCC2_COMPARE_0    = 35,
+    LINK_TCC2_COMPARE_1    = 36,
+    LINK_TCC2_COMPARE_2    = 37,
+    LINK_TCC3_OOB          = 38,
+    LINK_TCC3_COMPARE_0    = 39,
+    LINK_TCC3_COMPARE_1    = 40,
+    LINK_TCC4_OOB          = 41,
+    LINK_TCC4_COMPARE_0    = 42,
+    LINK_TCC4_COMPARE_1    = 43,
+    LINK_TC0_OOB           = 44,
+    LINK_TC0_COMPARE_0     = 45,
+    LINK_TC0_COMPARE_1     = 46,
+    LINK_TC1_OOB           = 47,
+    LINK_TC1_COMPARE_0     = 48,
+    LINK_TC1_COMPARE_1     = 49,
+    LINK_TC2_OOB           = 50,
+    LINK_TC2_COMPARE_0     = 51,
+    LINK_TC2_COMPARE_1     = 52,
+    LINK_TC3_OOB           = 53,
+    LINK_TC3_COMPARE_0     = 54,
+    LINK_TC3_COMPARE_1     = 55,
+    LINK_TC4_OOB           = 56,
+    LINK_TC4_COMPARE_0     = 57,
+    LINK_TC4_COMPARE_1     = 58,
+    LINK_TC5_OOB           = 59,
+    LINK_TC5_COMPARE_0     = 60,
+    LINK_TC5_COMPARE_1     = 61,
+    LINK_TC6_OOB           = 62,
+    LINK_TC6_COMPARE_0     = 63,
+    LINK_TC6_COMPARE_1     = 64,
+    LINK_TC7_OOB           = 65,
+    LINK_TC7_COMPARE_0     = 66,
+    LINK_TC7_COMPARE_1     = 67,
+    LINK_ADC0_RESRDY       = 68,
+    LINK_ADC0_SEQ          = 69,
+    LINK_ADC1_RESRDY       = 70,
+    LINK_ADC1_SEQ          = 71,
+    LINK_DAC_EMPTY0        = 72,
+    LINK_DAC_EMPTY1        = 73,
+    LINK_DAC_RESULT_READY0 = 74,
+    LINK_DAC_RESULT_READY1 = 75,
+    LINK_I2S_RX0           = 76,
+    LINK_I2S_RX1           = 77,
+    LINK_I2S_TX0           = 78,
+    LINK_I2S_TX1           = 79,
+    LINK_PCC_RX            = 80,
+    LINK_AES_WRITE         = 81,
+    LINK_AES_READ          = 82,
+    LINK_QSPI_RX           = 83,
+    LINK_QSPI_TX           = 84
   };
 }
-
 
 
 
@@ -257,25 +317,25 @@ namespace core {
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 /*
-typedef struct transferDescriptor { 
+typedef struct channelTask { 
   friend channel; 
-  transferDescriptor();
-  transferDescriptor(const transferDescriptor&);
-  transferDescriptor(DmacDescriptor*);
+  channelTask();
+  channelTask(const channelTask&);
+  channelTask(DmacDescriptor*);
 
-  inline void operator = (const transferDescriptor&);
+  inline void operator = (const channelTask&);
 
   struct addr {
     inline bool operator = (const void*);
     inline operator void*() const;
     inline operator uintptr_t() const;
-    _multi_(transferDescriptor, addr);
+    _multi_(channelTask, addr);
   }src{this, 0}, dest{this, 1};
 
   struct increment {
     bool operator = (const int&);
     operator int() const;
-    _multi_(transferDescriptor, increment);
+    _multi_(channelTask, increment);
   }incrementSrc{this, 0}, incrementDest{this, 1};
 
   template<int T>
@@ -286,25 +346,25 @@ typedef struct transferDescriptor {
   struct dataSize {
     inline bool operator = (const int&);
     inline operator int() const;
-    _super_(transferDescriptor, dataSize);
+    _super_(channelTask, dataSize);
   }dataSize{this};
 
   struct length {
     inline bool operator = (const int&);
     inline operator int() const;
-    _super_(transferDescriptor, length);
+    _super_(channelTask, length);
   }length{this};
 
   struct suspOnCompl {
     inline void operator = (const bool&);
     inline operator bool() const;
-    _super_(transferDescriptor, suspOnCompl);
+    _super_(channelTask, suspOnCompl);
   }suspOnCompl{this};
 
   struct valid {
     inline bool operator = (const bool&);
     inline operator bool() const;
-    _super_(transferDescriptor, valid);
+    _super_(channelTask, valid);
   }valid{this};
 
   inline void reset();
