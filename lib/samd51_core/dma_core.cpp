@@ -1,27 +1,24 @@
-#include "peripheral_core/dma_core2.h"
 
-#define BURSTLEN_COUNT (sizeof(BURSTLEN_REF) / sizeof(BURSTLEN_REF[0]))
-#define MAX_BURSTLENGTH 16
-#define DMA_MAX_TASKS 256
-static const int BURSTLEN_REF[BURSTLEN_COUNT] = {1, 2, 4};
+#include "dma_core.h"
 
-/// @internal DMA storage arrays
-static __attribute__ ((section(".hsram"))) __attribute__ ((aligned (16))) 
-  DmacDescriptor wbDescArray[DMAC_CH_NUM];
+namespace dma {
 
-static __attribute__ ((section(".hsram"))) __attribute__ ((aligned (16))) 
-  DmacDescriptor baseDescArray[DMAC_CH_NUM]; 
+  static const int BURSTLEN_REF[] = {1, 2, 4};
+  #define BURSTLEN_COUNT (sizeof(BURSTLEN_REF) / sizeof(BURSTLEN_REF[0]))
 
-static core::dma::taskDescriptor *baseTasks[DMAC_CH_NUM] = { nullptr };
-static core::dma::errorCallbackType errorCB = nullptr;
-static core::dma::transferCallbackType transferCB = nullptr;
+  /// @internal DMA storage arrays
+  static __attribute__ ((section(".hsram"))) __attribute__ ((aligned (16))) 
+    DmacDescriptor wbDescArray[DMAC_CH_NUM];
+  static __attribute__ ((section(".hsram"))) __attribute__ ((aligned (16))) 
+    DmacDescriptor baseDescArray[DMAC_CH_NUM]; 
 
-namespace core {
+  static taskDescriptor *baseTasks[DMAC_CH_NUM] = { nullptr };
+  static errorCallbackType errorCB = nullptr;
+  static transferCallbackType transferCB = nullptr;
 
   /***********************************************************************************************/
-  /// SECTION: DMA CONTROL 
 
-  bool dma::ctrlGroup::init(const bool &value) {
+  bool ctrlGroup::init(const bool &value) {
     DMAC->CTRL.bit.DMAENABLE = 0;
     while(DMAC->CTRL.bit.DMAENABLE);
 
@@ -47,31 +44,31 @@ namespace core {
     if (value) {
       for (int i = 0; i < DMA_PRILVL_COUNT; i++) {
         DMAC->CTRL.reg |= 
-          (dma::configGroup::prilvl_enabled[i] << (DMAC_CTRL_LVLEN0_Pos + i));    
+          (configGroup::prilvl_enabled[i] << (DMAC_CTRL_LVLEN0_Pos + i));    
         DMAC->PRICTRL0.reg |= 
-          (dma::configGroup::prilvl_rr_mode[i] << (DMAC_PRICTRL0_RRLVLEN0_Pos + i * 8))
-        | (dma::configGroup::prilvl_service_qual[i] << (DMAC_PRICTRL0_QOS0_Pos + i * 8));
+          (configGroup::prilvl_rr_mode[i] << (DMAC_PRICTRL0_RRLVLEN0_Pos + i * 8))
+        | (configGroup::prilvl_service_qual[i] << (DMAC_PRICTRL0_QOS0_Pos + i * 8));
       }
     }
     return true;
   }
-  bool dma::ctrlGroup::init() {
+  bool ctrlGroup::init() {
     return DMAC->BASEADDR.bit.BASEADDR && DMAC->WRBADDR.bit.WRBADDR;
   }
 
-  bool dma::ctrlGroup::enabled(const bool &value) {
-    if (!dma::ctrlGroup::init()) {
+  bool ctrlGroup::enabled(const bool &value) {
+    if (!ctrlGroup::init()) {
       return false;
     }
     DMAC->CTRL.bit.DMAENABLE = value;
     while(DMAC->CTRL.bit.DMAENABLE != value);
     return true;
   } 
-  bool dma::ctrlGroup::enabled() {
+  bool ctrlGroup::enabled() {
     return DMAC->CTRL.bit.DMAENABLE;
   }
 
-  bool dma::ctrlGroup::errorCallback(errorCallbackType &errorCallback) {
+  bool ctrlGroup::errorCallback(errorCallbackType &errorCallback) {
     errorCB = errorCallback;
     if (errorCallback) {
       for (int i = 0; i < DMAC_CH_NUM; i++) {
@@ -83,12 +80,13 @@ namespace core {
         DMAC->Channel[i].CHINTENCLR.bit.TERR = 1;
       }
     }
+    return true;
   }
-  bool dma::ctrlGroup::errorCallback() {
+  bool ctrlGroup::errorCallback() {
     return errorCB;
   }
 
-  bool dma::ctrlGroup::transferCallback(transferCallbackType &transferCallback) {
+  bool ctrlGroup::transferCallback(transferCallbackType &transferCallback) {
     transferCB = transferCallback; 
     if (transferCallback && !transferCB) {
       for (int i = 0; i < DMAC_CH_NUM; i++) {
@@ -102,50 +100,47 @@ namespace core {
     }
     return true;
   }
-  bool dma::ctrlGroup::transferCallback() {
+  bool ctrlGroup::transferCallback() {
     return transferCB;
   }
 
   /***********************************************************************************************/
-  /// SECTION: ACTIVE CHANNEL 
 
-  int dma::activeChannelGroup::remainingBytes() {
+  int activeChannelGroup::remainingBytes() {
     return DMAC->ACTIVE.bit.BTCNT * DMAC->ACTIVE.bit.ABUSY
       * wbDescArray[DMAC->ACTIVE.bit.ID].BTCTRL.bit.BEATSIZE;
   }
 
-  int dma::activeChannelGroup::index() {
+  int activeChannelGroup::index() {
     return DMAC->ACTIVE.bit.ID; 
   }
 
-  bool dma::activeChannelGroup::busy() {
+  bool activeChannelGroup::busy() {
     return DMAC->ACTIVE.bit.ABUSY; 
   }
 
   /***********************************************************************************************/
-  /// SECTION: CRC
 
-  //// CRC SOURCE CHANNEL
-  bool dma::crcGroup::inputChannel(const int &value) {
+  bool crcGroup::inputChannel(const int &value) {
     if (value >= DMAC_CH_NUM || DMAC->CRCSTATUS.bit.CRCBUSY) {
       return false;
     }
     DMAC->CRCCTRL.bit.CRCSRC = value + 32;
     return DMAC->CRCCTRL.bit.CRCSRC == value + 32;
   }
-  int dma::crcGroup::inputChannel() {
+  int crcGroup::inputChannel() {
     return DMAC->CRCCTRL.bit.CRCSRC - 32;
   }
 
-  bool dma::crcGroup::mode(const CRC_MODE &value) {
+  bool crcGroup::mode(const CRC_MODE &value) {
     DMAC->CRCCTRL.bit.CRCPOLY = value;
     return DMAC->CRCCTRL.bit.CRCPOLY == value;
   }
-  dma::CRC_MODE dma::crcGroup::mode() {
+  CRC_MODE crcGroup::mode() {
     return static_cast<CRC_MODE>(DMAC->CRCCTRL.bit.CRCPOLY);
   }
 
-  dma::CRC_STATUS dma::crcGroup::status() {
+  CRC_STATUS crcGroup::status() {
     if (DMAC->CRCCTRL.bit.CRCSRC == DMAC_CRCCTRL_CRCSRC_DISABLE_Val) {
       return CRC_DISABLED;
     } else if (DMAC->CRCSTATUS.bit.CRCERR) {
@@ -159,9 +154,8 @@ namespace core {
   }
 
   /***********************************************************************************************/
-  /// SECTION: CHANNEL
 
-  bool dma::channelGroup::init(const bool &value) {
+  bool channelGroup::init(const bool &value) {
     DMAC->Channel[index].CHCTRLA.bit.ENABLE = 0;
     while(DMAC->Channel[index].CHCTRLA.bit.ENABLE);
     DMAC->Channel[index].CHCTRLA.bit.SWRST = 1;
@@ -180,25 +174,25 @@ namespace core {
     }
     return true;
   } 
-  bool dma::channelGroup::init() const {
+  bool channelGroup::init() const {
     return memcmp((void*)&baseDescArray[index], (void*)&wbDescArray[index], 
       sizeof(DmacDescriptor)) || DMAC->Channel[index].CHCTRLA.reg 
       != DMAC_CHCTRLA_RESETVALUE;
   }
 
-  bool dma::channelGroup::state(const CHANNEL_STATE &value) {    
+  bool channelGroup::state(const CHANNEL_STATE &value) {    
     if (value == this->state()) {
       return true;
     }
     switch(value) {
-      case STATE_DISABLED: { // DONE
+      case STATE_DISABLED: { 
         DMAC->Channel[index].CHCTRLA.bit.ENABLE = 0;
         while(DMAC->Channel[index].CHCTRLA.bit.ENABLE);
         DMAC->Channel[index].CHCTRLB.bit.CMD = DMAC_CHCTRLB_CMD_NOACT_Val;
         DMAC->Channel[index].CHINTFLAG.bit.SUSP = 1;
         return true;
       }
-      case STATE_IDLE: { // DONE
+      case STATE_IDLE: {
         if (DMAC->Channel[index].CHSTATUS.reg & (DMAC_CHSTATUS_BUSY 
           | DMAC_CHSTATUS_PEND)) {
           DMAC->Channel[index].CHCTRLA.bit.ENABLE = 0;
@@ -209,14 +203,14 @@ namespace core {
         DMAC->Channel[index].CHCTRLA.bit.ENABLE = 1;
         return true;
       }
-      case STATE_SUSPENDED: { // DONE
+      case STATE_SUSPENDED: { 
         DMAC->Channel[index].CHCTRLA.bit.ENABLE = 1;
         DMAC->Channel[index].CHINTFLAG.bit.SUSP = 1;
-        DMAC->Channel[index].CHCTRLB.bit.CMD == DMAC_CHCTRLB_CMD_SUSPEND_Val;
+        DMAC->Channel[index].CHCTRLB.bit.CMD = DMAC_CHCTRLB_CMD_SUSPEND_Val;
         while(!DMAC->Channel[index].CHINTFLAG.bit.SUSP);
         return true;
       }
-      case STATE_ACTIVE: { // DONE
+      case STATE_ACTIVE: { 
         DMAC->Channel[index].CHCTRLA.bit.ENABLE = 1;
         DMAC->Channel[index].CHCTRLB.bit.CMD = DMAC_CHCTRLB_CMD_NOACT_Val;
         DMAC->Channel[index].CHINTFLAG.reg = DMAC_CHINTFLAG_RESETVALUE;
@@ -228,7 +222,7 @@ namespace core {
       }
     }
   }
-  dma::CHANNEL_STATE dma::channelGroup::state() const {
+  CHANNEL_STATE channelGroup::state() const {
     if (!DMAC->Channel[index].CHCTRLA.bit.ENABLE) {
       return STATE_DISABLED;
     } else if (DMAC->Channel[index].CHINTFLAG.bit.SUSP) {
@@ -240,18 +234,16 @@ namespace core {
     return STATE_IDLE;    
   }
 
-  // LINKED PERIPHERAL TRIGGER
-  bool dma::channelGroup::linkedPeripheral(const PERIPHERAL_LINK &value) {
+  bool channelGroup::linkedPeripheral(const PERIPHERAL_LINK &value) {
     DMAC->Channel[index].CHCTRLA.bit.TRIGSRC = value;
     return DMAC->Channel[index].CHCTRLA.bit.TRIGSRC == value;
   }
-  dma::PERIPHERAL_LINK dma::channelGroup::linkedPeripheral() const{
+  PERIPHERAL_LINK channelGroup::linkedPeripheral() const{
     return static_cast<PERIPHERAL_LINK>(DMAC->Channel[index]
       .CHCTRLA.bit.TRIGSRC);
   }
 
-  //// TRANSFER MODE
-  bool dma::channelGroup::transferMode(const TRANSFER_MODE &value) {
+  bool channelGroup::transferMode(const TRANSFER_MODE &value) {
     if (value == MODE_TRANSFER_TASK) {
       DMAC->Channel[index].CHCTRLA.bit.TRIGACT 
         = DMAC_CHCTRLA_TRIGACT_BLOCK_Val;
@@ -271,8 +263,7 @@ namespace core {
       == DMAC_CHCTRLA_TRIGACT_BURST_Val;
   }
 
-  //// CHANNEL ERROR
-  dma::CHANNEL_ERROR dma::channelGroup::error() const {
+  CHANNEL_ERROR channelGroup::error() const {
     if (DMAC->Channel[index].CHINTFLAG.bit.TERR) {
       if (DMAC->Channel[index].CHSTATUS.bit.FERR) {
         return ERROR_DESC;
@@ -284,14 +275,12 @@ namespace core {
     return ERROR_NONE;
   }
 
-  //// WRITEBACK DESCRIPTOR
-  dma::taskDescriptor dma::channelGroup::writebackDescriptor() {
-    return dma::taskDescriptor(&wbDescArray[index]);
+  taskDescriptor channelGroup::writebackDescriptor() {
+    return taskDescriptor(&wbDescArray[index]);
   }
 
-  //// GET TASK
-  dma::taskDescriptor &dma::channelGroup::getTask(const int &taskIndex) {
-    dma::taskDescriptor *current = baseTasks[index];
+  taskDescriptor &channelGroup::getTask(const int &taskIndex) {
+    taskDescriptor *current = baseTasks[index];
     for (int i = 0; i < taskIndex; i++) {
       if (!current->linked || current->linked == baseTasks[index]) {
         return *current;
@@ -301,9 +290,8 @@ namespace core {
     return *current;
   }
 
-  //// GET TASK COUNT
-  int dma::channelGroup::taskCount() {
-    dma::taskDescriptor *current = baseTasks[index];
+  int channelGroup::taskCount() {
+    taskDescriptor *current = baseTasks[index];
     if (!current) {
       return 0;
     }
@@ -315,8 +303,7 @@ namespace core {
     return count;
   }
 
-  //// ADD TASK
-  bool dma::channelGroup::addTask(const int &reqIndex, dma::taskDescriptor &task) {    
+  bool channelGroup::addTask(const int &reqIndex, taskDescriptor &task) {    
     int taskIndex = clamp(reqIndex, 0, DMA_MAX_TASKS);
     if (task.assignedCh != -1 || task.linked) {
       return false;
@@ -333,8 +320,8 @@ namespace core {
         == DMAC_CHCTRLB_CMD_SUSPEND_Val);
     }
     if (taskIndex) {
-      dma::taskDescriptor *current = baseTasks[index];
-      dma::taskDescriptor *prev = nullptr;
+      taskDescriptor *current = baseTasks[index];
+      taskDescriptor *prev = nullptr;
 
       for (int i = 0; i < taskIndex; i++) {
         if (!current->linked || current == baseTasks[index]) {
@@ -353,7 +340,7 @@ namespace core {
       prev->linked = &task;
       task.linked = current;
     } else {
-      dma::taskDescriptor *nextTask = nullptr;
+      taskDescriptor *nextTask = nullptr;
       if (baseTasks[index] != nullptr) {
         nextTask = baseTasks[index];
         nextTask->desc = new DmacDescriptor;
@@ -377,8 +364,7 @@ namespace core {
     return true;
   }
 
-  //// SET TASKS
-  bool dma::channelGroup::setTasks(std::initializer_list<dma::taskDescriptor&> 
+  bool channelGroup::setTasks(std::initializer_list<taskDescriptor*> 
     taskList) {
     bool enableFlag = false;
     if (DMAC->Channel[index].CHCTRLA.bit.ENABLE) {
@@ -389,26 +375,26 @@ namespace core {
     if (!clearTasks()) { 
       return false; 
     }
-    dma::taskDescriptor *prev = nullptr;
-    for (dma::taskDescriptor &task : taskList) {
-      if (task.assignedCh != -1 || task.linked) {
+    taskDescriptor *prev = nullptr;
+    for (taskDescriptor *task : taskList) {
+      if (task->assignedCh != -1 || task->linked) {
         return false;
       } 
-      task.assignedCh = index;     
+      task->assignedCh = index;     
       if (!prev) {
-        prev = &task;
-        memcpy(&baseDescArray[index], task.desc, sizeof(DmacDescriptor));
-        if (task.alloc) {
-          delete task.desc;
+        prev = task;
+        memcpy(&baseDescArray[index], task->desc, sizeof(DmacDescriptor));
+        if (task->alloc) {
+          delete task->desc;
         }
-        task.alloc = false;
-        task.desc = &baseDescArray[index];
-        baseTasks[index] = &task;
+        task->alloc = false;
+        task->desc = &baseDescArray[index];
+        baseTasks[index] = task;
         continue;
       }
-      prev->desc->DESCADDR.bit.DESCADDR = (uintptr_t)task.desc;
-      task.desc->DESCADDR.bit.DESCADDR = 0;
-      prev->linked = &task;
+      prev->desc->DESCADDR.bit.DESCADDR = (uintptr_t)task->desc;
+      task->desc->DESCADDR.bit.DESCADDR = 0;
+      prev->linked = task;
     }
     if (enableFlag) {
       DMAC->Channel[index].CHCTRLA.bit.ENABLE = 1;
@@ -416,13 +402,13 @@ namespace core {
     return true;
   }
 
-  dma::taskDescriptor &dma::channelGroup::removeTask(const int &reqIndex) {
+  taskDescriptor &channelGroup::removeTask(const int &reqIndex) {
     int taskIndex = clamp(reqIndex, 0, DMA_MAX_TASKS);
-    dma::taskDescriptor *removed = nullptr;
+    taskDescriptor *removed = nullptr;
 
     if (!taskIndex) {
       removed = baseTasks[index];
-      assert(removed && removed->assignedCh == index);
+      //assert(removed && removed->assignedCh == index); //////////////////////////////// TO DO
       removed->desc = new DmacDescriptor;
       memcpy(removed->desc, &baseDescArray[index], sizeof(DmacDescriptor));
 
@@ -431,8 +417,8 @@ namespace core {
       removed->desc->DESCADDR.bit.DESCADDR = 0;
 
       if (removed->linked) {
-        dma::taskDescriptor *newBase = removed->linked;
-        assert(newBase && newBase->assignedCh == index);
+        taskDescriptor *newBase = removed->linked;
+        //assert(newBase && newBase->assignedCh == index); /////////////////////////////// TO DO
         memcpy(&baseDescArray[index], newBase->desc, sizeof(DmacDescriptor));
         if (newBase->alloc) {
           delete newBase->desc;
@@ -442,7 +428,7 @@ namespace core {
       }
     } else {
       removed = baseTasks[index];
-      dma::taskDescriptor *prev = nullptr;
+      taskDescriptor *prev = nullptr;
       for (int i = 0; i < taskIndex; i++) {
         if (!removed->linked || removed->linked == baseTasks[index]) {
           break;
@@ -459,16 +445,15 @@ namespace core {
     return *removed;
   }
 
-  //// CLEAR TASKS
-  bool dma::channelGroup::clearTasks() {
-    auto resetTask = [&](dma::taskDescriptor *task) {
+  bool channelGroup::clearTasks() {
+    auto resetTask = [&](taskDescriptor *task) {
       task->assignedCh = -1;
       task->linked = nullptr;
       task->desc->DESCADDR.bit.DESCADDR = 0;
     };
     if (baseTasks[index]) {
-      dma::taskDescriptor *current = baseTasks[index]->linked;
-      dma::taskDescriptor *next = nullptr;
+      taskDescriptor *current = baseTasks[index]->linked;
+      taskDescriptor *next = nullptr;
       
       if (DMAC->Channel[index].CHCTRLA.bit.ENABLE) {
         DMAC->Channel[index].CHCTRLA.bit.ENABLE = 0;
@@ -491,61 +476,50 @@ namespace core {
   }
 
   /***********************************************************************************************/
-  /// SECTION: TASK DESCRIPTOR 
 
-  //// CONSTRUCTORS
-  dma::taskDescriptor::taskDescriptor() {
+  taskDescriptor::taskDescriptor() {
     desc = new DmacDescriptor;
     alloc = true;
     srcAlign = -1;
     destAlign = -1;
   }
-  dma::taskDescriptor::taskDescriptor(DmacDescriptor *desc) {
+  taskDescriptor::taskDescriptor(DmacDescriptor *desc) {
     this->desc = desc;
     alloc = false;
     srcAlign = -1;
     destAlign = -1;
   }
-  dma::taskDescriptor::taskDescriptor(const taskDescriptor &other) {
+  taskDescriptor::taskDescriptor(const taskDescriptor &other) {
     desc = other.desc;
     alloc = other.alloc;
     srcAlign = other.srcAlign;
     destAlign = other.destAlign;
   }
 
-  //// OPERATORS
-  dma::taskDescriptor dma::taskDescriptor::operator=  
+  taskDescriptor &taskDescriptor::operator=  
     (const taskDescriptor &other) {
     srcAlign = other.srcAlign;
     destAlign = other.destAlign;
     memcpy(&desc, &other.desc, sizeof(DmacDescriptor));
+    return *this;
   }
-  dma::taskDescriptor::operator DmacDescriptor*() {
+  taskDescriptor::operator DmacDescriptor*() {
     return desc;
   }
-  dma::taskDescriptor::operator bool() const {
+  taskDescriptor::operator bool() const {
     return desc->BTCTRL.bit.VALID;
   }
 
-  //// RESET
-  void dma::taskDescriptor::reset() {
-    memset(&desc, 0, sizeof(DmacDescriptor));
-    srcAlign = -1;
-    destAlign = -1;
-  }
-
-  //// TASK ENABLED
-  bool dma::taskDescriptor::enabled(const bool &value) {
+  bool taskDescriptor::enabled(const bool &value) {
     desc->BTCTRL.bit.VALID = value && desc->SRCADDR.bit.SRCADDR != 0
       && desc->DSTADDR.bit.DSTADDR != 0 && desc->BTCNT.bit.BTCNT != 0;
     return desc->BTCTRL.bit.VALID == value;
   }
-  bool dma::taskDescriptor::enabled() const {
+  bool taskDescriptor::enabled() const {
     return desc->BTCTRL.bit.VALID;
   }
 
-  //// TRANSFER DESTINATION/SOURCE
-  bool dma::taskDescriptor::setDesc_(const void *value, const int &size, 
+  bool taskDescriptor::setDesc_(const void *value, const int &size, 
     const bool &isVol, const int &index, const bool &isSrc) {
     if (!value) {
       if (isSrc) {
@@ -582,9 +556,8 @@ namespace core {
         desc->BTCTRL.bit.DSTINC = (bool)(index > 1);
       }
       if (srcAlign && destAlign) {
-        desc->BTCTRL.bit.BEATSIZE == srcAlign < destAlign 
-          ? srcAlign : destAlign;
-
+        desc->BTCTRL.bit.BEATSIZE = srcAlign < destAlign ? srcAlign : destAlign;
+        
         if (desc->BTCTRL.bit.SRCINC && srcAlign 
           < desc->BTCTRL.bit.BEATSIZE) {
           desc->BTCTRL.bit.STEPSEL = DMAC_BTCTRL_STEPSEL_SRC_Val;
@@ -596,13 +569,13 @@ namespace core {
           desc->BTCTRL.bit.STEPSIZE = desc->BTCTRL.bit.BEATSIZE / destAlign;
         }
       }
-      if ((uintptr_t)value == (uintptr_t)&dma::crcGroup::CRC_INPUT) {
+      if ((uintptr_t)value == (uintptr_t)&crcGroup::CRC_INPUT) {
         if (!isSrc) {
           desc->DSTADDR.bit.DSTADDR = (uintptr_t)REG_DMAC_CRCDATAIN;
         } else {
           return false;
         }
-      } else if ((uintptr_t)value == (uintptr_t)&dma::crcGroup::CRC_OUTPUT) {
+      } else if ((uintptr_t)value == (uintptr_t)&crcGroup::CRC_OUTPUT) {
         if (isSrc) {
           desc->SRCADDR.bit.SRCADDR = (uintptr_t)REG_DMAC_CRCCHKSUM; 
         } else {
@@ -630,15 +603,14 @@ namespace core {
     }
     return false;
   }
-  void *dma::taskDescriptor::source() const {
+  void *taskDescriptor::source() const {
     return (void*)desc->SRCADDR.bit.SRCADDR;
   }
-  void *dma::taskDescriptor::destination() const {
+  void *taskDescriptor::destination() const {
     return (void*)desc->DESCADDR.bit.DESCADDR;
   }
 
-  //// TRANSFER LENGTH
-  bool dma::taskDescriptor::length(const int &value) {
+  bool taskDescriptor::length(const int &value) {
     int prevLength = desc->BTCNT.bit.BTCNT;
     desc->BTCNT.bit.BTCNT = value;
     if (desc->SRCADDR.bit.SRCADDR) {
@@ -659,36 +631,37 @@ namespace core {
     }
     return desc->BTCNT.bit.BTCNT == value;
   }
-  int dma::taskDescriptor::length() const {
+  int taskDescriptor::length() const {
     return desc->BTCNT.bit.BTCNT;
   }
 
-  //// SUSPEND CHANNNEL
-  bool dma::taskDescriptor::suspendChannel(const bool &value) {
+  bool taskDescriptor::suspendChannel(const bool &value) {
     const int regVal = value ? DMAC_BTCTRL_BLOCKACT_SUSPEND_Val 
       : DMAC_BTCTRL_BLOCKACT_NOACT_Val;
     desc->BTCTRL.bit.BLOCKACT = regVal;
     return desc->BTCTRL.bit.BLOCKACT == regVal; 
   }
-  bool dma::taskDescriptor::suspendChannel() const {
+  bool taskDescriptor::suspendChannel() const {
     return desc->BTCTRL.bit.BLOCKACT == DMAC_BTCTRL_BLOCKACT_SUSPEND_Val;
   }
 
-  //// MISC
-  dma::taskDescriptor &dma::taskDescriptor::linkedTask() {
+  void taskDescriptor::reset() {
+    memset(&desc, 0, sizeof(DmacDescriptor));
+    srcAlign = -1;
+    destAlign = -1;
+  }
+  taskDescriptor &taskDescriptor::linkedTask() {
     return *linked;
   }
-  int dma::taskDescriptor::assignedChannel() {
+  int taskDescriptor::assignedChannel() {
     return assignedCh;
   }
 
-  //// DESTRUCTOR
-  dma::taskDescriptor::~taskDescriptor() {   
+  taskDescriptor::~taskDescriptor() {   
     if (alloc) {
       delete desc;
     } 
   }
-
 
 } // NAMESPACE DMA
 
