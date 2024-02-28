@@ -10,10 +10,7 @@ void setup() {
   Serial.println("****************************************");
 
   MCLK->AHBMASK.bit.DMAC_ = 1;
-  struct dma::ctrlGroup dmaCtrl;
-  dmaCtrl.init(true);
-  Serial.println("working");
-  Serial.println(dmaCtrl.init());
+
 }
 
 void loop() {
